@@ -85,6 +85,24 @@ Open http://localhost:3000 → click **"First time? Create Super Admin account"*
 
 This calls `POST /api/users/seed-admin` which only works when the users table is empty.
 
+You can also seed an admin from the server directly:
+
+```bash
+cd server
+ADMIN_NAME="Super Admin" \
+ADMIN_EMAIL="admin@example.com" \
+ADMIN_PASSWORD="changeme123" \
+npm run seed:admin
+```
+
+Optional:
+
+```bash
+ADMIN_ROLE=super_admin
+```
+
+The seeder is idempotent for the same email and will skip creation if that user already exists.
+
 ---
 
 ## 🌐 API Reference
