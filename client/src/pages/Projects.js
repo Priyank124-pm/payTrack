@@ -179,7 +179,7 @@ export default function Projects({ projects, milestones, profiles, changeRequest
               <select className="form-control" value={form.manager_id||''} disabled={!isAdmin} onChange={e=>setF('manager_id',e.target.value)}>
                 {pms.map(pm=><option key={pm.id} value={pm.id}>{pm.name}</option>)}
               </select></div>
-            <div className="form-group"><label className="form-label">Target Payment ($)</label><input className="form-control" type="number" value={form.target_payment||''} onChange={e=>setF('target_payment',e.target.value)} placeholder="5000"/></div>
+            <div className="form-group"><label className="form-label">Target Payment ($) <span style={{fontWeight:400,color:'var(--text4)'}}>— optional</span></label><input className="form-control" type="number" min="0" value={form.target_payment||''} onChange={e=>setF('target_payment',e.target.value)} placeholder="Leave blank if unknown"/></div>
           </div>
           <div className="info-box mt-3" style={{ marginTop:12 }}><Icon name="info" size={13}/>Milestones are managed in <strong>Monthly Projections</strong>.</div>
         </Modal>
