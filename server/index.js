@@ -29,6 +29,7 @@ app.use('/api/projects',        require('./routes/projects'));
 app.use('/api/milestones',      require('./routes/milestones'));
 app.use('/api/change-requests', require('./routes/changeRequests'));
 app.use('/api/reports',         require('./routes/reports'));
+app.use('/api/notifications',   require('./routes/notifications'));
 
 // ── Health check ───────────────────────────────────────────────
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
@@ -45,6 +46,8 @@ app.use((err, _req, res, _next) => {
 // ── Boot ───────────────────────────────────────────────────────
 (async () => {
   await initDB();
+  const { startScheduler } = require('./services/notificationScheduler');
+  startScheduler();
   app.listen(PORT, () => {
     console.log(`🚀  NexPortal API running on http://localhost:${PORT}`);
     console.log(`   CLIENT_URL = ${process.env.CLIENT_URL || 'http://localhost:3000'}`);

@@ -70,7 +70,7 @@ router.post('/',
     body('type').isIn(['Monthly','Hourly','Milestone']),
     body('portal').trim().notEmpty(),
     body('manager_id').notEmpty(),
-    body('target_payment').isFloat({ min: 0 }),
+    body('target_payment').optional().isFloat({ min: 0 }),
   ],
   async (req, res) => {
     const errors = validationResult(req);
