@@ -54,6 +54,7 @@ export const projectsAPI = {
   update:       (id, body) => patch(`/api/projects/${id}`, body),
   markReceived: (id)       => patch(`/api/projects/${id}/mark-received`),
   remove:       (id)       => del(`/api/projects/${id}`),
+  bulkImport:   (body)     => post('/api/projects/bulk-import', body),
 };
 
 // ── Milestones ─────────────────────────────────────────────────
