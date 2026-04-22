@@ -10,7 +10,10 @@ router.use(authenticate);
 async function canAccessProject(user, projectId) {
   const [rows] = await pool.query('SELECT manager_id, coordinator_id FROM projects WHERE id = ?', [projectId]);
   if (!rows.length) return false;
-  if (user.role === 'coordinator') return rows[0].coordinator_id === user.id;
+  if (user.role === 'coordinator') {
+    // Allow if explicitly assigned as coordinator OR if project belongs to their PM
+    return rows[0].coordinator_id === user.id || rows[0].manager_id === user.manager_id;
+  }
   const managerId = getEffectiveManagerId(user);
   if (!managerId) return true; // admins access all
   return rows[0].manager_id === managerId;
@@ -28,8 +31,9 @@ router.get('/', async (req, res) => {
     const wheres = [];
 
     if (req.user.role === 'coordinator') {
-      wheres.push('p.coordinator_id = ?');
-      params.push(req.user.id);
+      // Show milestones for assigned projects OR all projects under their PM
+      wheres.push('(p.coordinator_id = ? OR p.manager_id = ?)');
+      params.push(req.user.id, req.user.manager_id);
     } else {
       const managerId = getEffectiveManagerId(req.user);
       if (managerId) {

@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS projects (
   target_payment        DECIMAL(14,2)  DEFAULT 0.00,
   status                ENUM('active','completed','on_hold') NOT NULL DEFAULT 'active',
   all_payments_received TINYINT(1)     NOT NULL DEFAULT 0,
+  archived              TINYINT(1)     NOT NULL DEFAULT 0,
   created_at            DATETIME       DEFAULT CURRENT_TIMESTAMP,
   updated_at            DATETIME       DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_projects_manager      FOREIGN KEY (manager_id)     REFERENCES users(id) ON DELETE CASCADE,
@@ -91,6 +92,7 @@ async function initDB() {
     };
     await migrate(`ALTER TABLE projects ADD COLUMN coordinator_id CHAR(36) DEFAULT NULL`);
     await migrate(`ALTER TABLE projects ADD CONSTRAINT fk_projects_coordinator FOREIGN KEY (coordinator_id) REFERENCES users(id) ON DELETE SET NULL`);
+    await migrate(`ALTER TABLE projects ADD COLUMN archived TINYINT(1) NOT NULL DEFAULT 0`);
 
     console.log('✅  Database schema initialised');
   } catch (err) {

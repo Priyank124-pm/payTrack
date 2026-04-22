@@ -46,13 +46,44 @@ export const useProfiles = () => {
 export const useProjects = () => {
   const { data: projects, loading, refetch } = useFetch(() => projectsAPI.list());
 
-  const createProject       = async (form) => { const p = await projectsAPI.create(form);     await refetch(); return p; };
-  const updateProject       = async (id, u) => { await projectsAPI.update(id, u);             await refetch(); };
-  const deleteProject       = async (id)    => { await projectsAPI.remove(id);                await refetch(); };
-  const markAllReceived     = async (id)    => { await projectsAPI.markReceived(id);          await refetch(); };
-  const bulkImportProjects  = async (body)  => { const r = await projectsAPI.bulkImport(body); await refetch(); return r; };
+  const [archivedProjects, setArchivedProjects] = useState([]);
+  const [archivedLoading,  setArchivedLoading]  = useState(false);
 
-  return { projects, loading, createProject, updateProject, deleteProject, markAllReceived, bulkImportProjects, refetch };
+  const createProject      = async (form) => { const p = await projectsAPI.create(form);      await refetch(); return p; };
+  const updateProject      = async (id,u) => { await projectsAPI.update(id,u);               await refetch(); };
+  const deleteProject      = async (id)   => { await projectsAPI.remove(id);                 await refetch(); };
+  const markAllReceived    = async (id)   => { await projectsAPI.markReceived(id);            await refetch(); };
+  const bulkImportProjects = async (body) => { const r = await projectsAPI.bulkImport(body); await refetch(); return r; };
+
+  const archiveProject = async (id) => {
+    await projectsAPI.archive(id);
+    await refetch();
+  };
+  const unarchiveProject = async (id) => {
+    await projectsAPI.unarchive(id);
+    await refetch();
+    setArchivedProjects(prev => prev.filter(p => p.id !== id));
+  };
+  const bulkDeleteProjects = async (ids) => {
+    await projectsAPI.bulkDelete(ids);
+    await refetch();
+    setArchivedProjects(prev => prev.filter(p => !ids.includes(p.id)));
+  };
+  const loadArchivedProjects = async () => {
+    setArchivedLoading(true);
+    try {
+      const data = await projectsAPI.list({ archived: '1' });
+      setArchivedProjects(data);
+    } catch (_) {}
+    finally { setArchivedLoading(false); }
+  };
+
+  return {
+    projects, loading, refetch,
+    archivedProjects, archivedLoading, loadArchivedProjects,
+    createProject, updateProject, deleteProject, markAllReceived,
+    archiveProject, unarchiveProject, bulkDeleteProjects, bulkImportProjects,
+  };
 };
 
 // ── useMilestones ──────────────────────────────────────────────

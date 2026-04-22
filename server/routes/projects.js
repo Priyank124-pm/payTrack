@@ -11,6 +11,7 @@ const COMMISSION_PORTALS = ['Fiverr', 'Upwork'];
 // ── GET /api/projects ──────────────────────────────────────────
 router.get('/', async (req, res) => {
   try {
+    const showArchived = req.query.archived === '1';
     let sql = `
       SELECT p.*,
              u.name  AS manager_name,
@@ -22,17 +23,20 @@ router.get('/', async (req, res) => {
       LEFT JOIN users c    ON c.id = p.coordinator_id
       LEFT JOIN milestones m ON m.project_id = p.id
     `;
-    const params = [];
+    const params  = [showArchived ? 1 : 0];
+    const wheres  = ['p.archived = ?'];
+
     if (req.user.role === 'coordinator') {
-      sql += ' WHERE p.coordinator_id = ?';
+      wheres.push('p.coordinator_id = ?');
       params.push(req.user.id);
     } else {
       const managerId = getEffectiveManagerId(req.user);
       if (managerId) {
-        sql += ' WHERE p.manager_id = ?';
+        wheres.push('p.manager_id = ?');
         params.push(managerId);
       }
     }
+    sql += ' WHERE ' + wheres.join(' AND ');
     sql += ' GROUP BY p.id ORDER BY p.created_at DESC';
     const [rows] = await pool.query(sql, params);
     res.json(rows);
@@ -77,7 +81,7 @@ router.post('/',
     body('type').isIn(['Monthly','Hourly','Milestone']),
     body('portal').trim().notEmpty(),
     body('manager_id').notEmpty(),
-    body('target_payment').optional().isFloat({ min: 0 }),
+    body('target_payment').optional({ checkFalsy: true }).isFloat({ min: 0 }),
   ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -185,6 +189,45 @@ router.post('/bulk-import', isAdmin,
     res.json({ created: created.length, errors: importErrors });
   }
 );
+
+// ── POST /api/projects/bulk-delete ────────────────────────────
+router.post('/bulk-delete', isSuperAdmin, async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0)
+    return res.status(400).json({ error: 'No project IDs provided' });
+  try {
+    const placeholders = ids.map(() => '?').join(',');
+    const [result] = await pool.query(`DELETE FROM projects WHERE id IN (${placeholders})`, ids);
+    res.json({ deleted: result.affectedRows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── PATCH /api/projects/:id/archive ───────────────────────────
+router.patch('/:id/archive', isAdmin, async (req, res) => {
+  try {
+    const [r] = await pool.query('UPDATE projects SET archived = 1 WHERE id = ?', [req.params.id]);
+    if (!r.affectedRows) return res.status(404).json({ error: 'Project not found' });
+    res.json({ message: 'Project archived' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── PATCH /api/projects/:id/unarchive ─────────────────────────
+router.patch('/:id/unarchive', isAdmin, async (req, res) => {
+  try {
+    const [r] = await pool.query('UPDATE projects SET archived = 0 WHERE id = ?', [req.params.id]);
+    if (!r.affectedRows) return res.status(404).json({ error: 'Project not found' });
+    res.json({ message: 'Project restored' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
 // ── PATCH /api/projects/:id ────────────────────────────────────
 router.patch('/:id', async (req, res) => {
