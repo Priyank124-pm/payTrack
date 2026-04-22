@@ -46,12 +46,13 @@ export const useProfiles = () => {
 export const useProjects = () => {
   const { data: projects, loading, refetch } = useFetch(() => projectsAPI.list());
 
-  const createProject  = async (form) => { const p = await projectsAPI.create(form);          await refetch(); return p; };
-  const updateProject  = async (id, u) => { await projectsAPI.update(id, u);                  await refetch(); };
-  const deleteProject  = async (id)    => { await projectsAPI.remove(id);                     await refetch(); };
-  const markAllReceived= async (id)    => { await projectsAPI.markReceived(id);               await refetch(); };
+  const createProject       = async (form) => { const p = await projectsAPI.create(form);     await refetch(); return p; };
+  const updateProject       = async (id, u) => { await projectsAPI.update(id, u);             await refetch(); };
+  const deleteProject       = async (id)    => { await projectsAPI.remove(id);                await refetch(); };
+  const markAllReceived     = async (id)    => { await projectsAPI.markReceived(id);          await refetch(); };
+  const bulkImportProjects  = async (body)  => { const r = await projectsAPI.bulkImport(body); await refetch(); return r; };
 
-  return { projects, loading, createProject, updateProject, deleteProject, markAllReceived, refetch };
+  return { projects, loading, createProject, updateProject, deleteProject, markAllReceived, bulkImportProjects, refetch };
 };
 
 // ── useMilestones ──────────────────────────────────────────────

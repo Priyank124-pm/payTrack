@@ -104,6 +104,64 @@ router.post('/',
   }
 );
 
+// ── POST /api/projects/bulk-import ────────────────────────────
+router.post('/bulk-import', isAdmin,
+  [ body('rows').isArray({ min: 1 }) ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+    const { rows } = req.body;
+    const VALID_PORTALS = ['Upwork','Fiverr','Toptal','PeoplePerHour','Freelancer','Direct'];
+    const VALID_TYPES   = ['Monthly','Hourly','Milestone'];
+    const HEALTH_MAP    = { green: 'active', amber: 'on_hold', yellow: 'on_hold', red: 'on_hold' };
+
+    const created = [];
+    const importErrors = [];
+
+    for (const row of rows) {
+      try {
+        const projectName = (row.project_name || '').trim();
+        const clientName  = (row.client_name  || '').trim();
+        const managerName = (row.manager_name || '').trim();
+
+        if (!projectName) { importErrors.push({ project: '(blank)', error: 'Missing Project Name' }); continue; }
+        if (!clientName)  { importErrors.push({ project: projectName, error: 'Missing Client Name' }); continue; }
+        if (!managerName) { importErrors.push({ project: projectName, error: 'Missing Project Manager' }); continue; }
+
+        const [pms] = await pool.query(
+          "SELECT id FROM users WHERE role = 'project_manager' AND LOWER(TRIM(name)) = LOWER(TRIM(?))",
+          [managerName]
+        );
+        if (!pms.length) {
+          importErrors.push({ project: projectName, error: `PM "${managerName}" not found` });
+          continue;
+        }
+
+        const managerId     = pms[0].id;
+        const portalRaw     = (row.portal || '').trim();
+        const portal        = VALID_PORTALS.find(p => p.toLowerCase() === portalRaw.toLowerCase()) || 'Direct';
+        const typeRaw       = (row.type   || '').trim();
+        const type          = VALID_TYPES.find(t => t.toLowerCase() === typeRaw.toLowerCase()) || 'Monthly';
+        const status        = HEALTH_MAP[(row.project_health || '').toLowerCase()] || 'active';
+        const targetPayment = parseFloat(row.target_payment) || 0;
+
+        await pool.query(
+          `INSERT INTO projects (id, name, client, type, portal, manager_id, target_payment, status, all_payments_received)
+           VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, 0)`,
+          [projectName, clientName, type, portal, managerId, targetPayment, status]
+        );
+        created.push({ project: projectName, manager: managerName });
+      } catch (err) {
+        console.error(err);
+        importErrors.push({ project: row.project_name || '?', error: err.message });
+      }
+    }
+
+    res.json({ created: created.length, errors: importErrors });
+  }
+);
+
 // ── PATCH /api/projects/:id ────────────────────────────────────
 router.patch('/:id', async (req, res) => {
   try {

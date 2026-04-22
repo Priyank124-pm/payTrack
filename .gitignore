@@ -1,3 +1,14 @@
+
+client/node_modules
+client/package-lock.json
+client/.env
+client/build
+
+server/node_modules
+server/package-lock.json
+server/.env
+server/.env
+.DS_Store
 server/node_modules
 server/package-lock.json
 client/node_modules

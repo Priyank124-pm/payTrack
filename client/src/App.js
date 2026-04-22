@@ -103,7 +103,7 @@ function AppShell() {
   const [showChangePw, setShowChangePw] = useState(false);
 
   const { profiles,   createProfile, updateProfile, deleteProfile }                   = useProfiles();
-  const { projects,   createProject, updateProject, deleteProject, markAllReceived }  = useProjects();
+  const { projects,   createProject, updateProject, deleteProject, markAllReceived, bulkImportProjects }  = useProjects();
   const { milestones, addMilestone,  updateMilestone, deleteMilestone }               = useMilestones();
   const { crs,        addCR,         approveCR,   rejectCR }                          = useChangeRequests();
 
@@ -139,7 +139,8 @@ function AppShell() {
         <Projects
           projects={projects} milestones={milestones} profiles={profiles} changeRequests={crs}
           onAdd={createProject} onUpdate={updateProject} onDelete={deleteProject}
-          onMarkReceived={markAllReceived} onAddCR={addCR} onApproveCR={approveCR} onRejectCR={rejectCR}
+          onMarkReceived={markAllReceived} onBulkImport={bulkImportProjects}
+          onAddCR={addCR} onApproveCR={approveCR} onRejectCR={rejectCR}
         />
       );
       case 'projections': return (
