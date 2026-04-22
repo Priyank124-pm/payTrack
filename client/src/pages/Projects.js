@@ -82,13 +82,23 @@ function downloadSampleCSV() {
   URL.revokeObjectURL(url);
 }
 
-export default function Projects({ projects, milestones, profiles, changeRequests, onAdd, onUpdate, onDelete, onMarkReceived, onBulkImport, onAddCR, onApproveCR, onRejectCR }) {
+export default function Projects({
+  projects, milestones, profiles, changeRequests,
+  onAdd, onUpdate, onDelete, onMarkReceived, onBulkImport,
+  onArchive, onUnarchive, onBulkDelete,
+  archivedProjects, archivedLoading, onLoadArchived,
+  onAddCR, onApproveCR, onRejectCR,
+}) {
   const { user:me, isAdmin, isSuperAdmin, effectiveManagerId } = useAuth();
   const [modal,        setModal]        = useState(null);
   const [form,         setForm]         = useState({});
   const [crForm,       setCRForm]       = useState({});
   const [error,        setError]        = useState('');
   const [saving,       setSaving]       = useState(false);
+  // Archive tab
+  const [activeTab,    setActiveTab]    = useState('active');
+  // Multi-select
+  const [selected,     setSelected]     = useState(new Set());
   // CSV import state
   const [csvRows,      setCsvRows]      = useState([]);
   const [csvError,     setCsvError]     = useState('');
@@ -98,6 +108,35 @@ export default function Projects({ projects, milestones, profiles, changeRequest
   const setCRF = (k,v)=> setCRForm(p=>({...p,[k]:v}));
 
   const closeCsvModal = () => { setModal(null); setCsvRows([]); setCsvError(''); setCsvResult(null); };
+
+  const handleTabChange = tab => {
+    setActiveTab(tab);
+    setSelected(new Set());
+    if (tab === 'archived') onLoadArchived();
+  };
+
+  const toggleSelect = id => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+  const toggleAll = (list) => setSelected(prev =>
+    prev.size === list.length && list.length > 0 ? new Set() : new Set(list.map(p => p.id))
+  );
+
+  const handleArchive = async id => {
+    if (!window.confirm('Archive this project? It will be hidden from projections and can be restored later.')) return;
+    await onArchive(id);
+  };
+  const handleRestore = async id => {
+    await onUnarchive(id);
+  };
+  const handleBulkDelete = async () => {
+    const ids = [...selected];
+    if (!window.confirm(`Permanently delete ${ids.length} project(s) and all their data? This cannot be undone.`)) return;
+    await onBulkDelete(ids);
+    setSelected(new Set());
+  };
 
   const handleCsvFile = e => {
     const file = e.target.files?.[0];
@@ -160,12 +199,21 @@ export default function Projects({ projects, milestones, profiles, changeRequest
     try { await onAddCR(crForm); setModal(null); } catch(e){setError(e.message);} finally{setSaving(false);}
   };
 
+  const TAB_STYLE = (active) => ({
+    padding:'8px 18px', fontSize:13, fontWeight:600, cursor:'pointer', border:'none', background:'none',
+    borderBottom: active ? '2px solid var(--primary)' : '2px solid transparent',
+    color: active ? 'var(--primary)' : 'var(--text3)',
+  });
+
   return (
     <div>
+      {/* ── Header ───────────────────────────────────────────── */}
       <div className="flex flex-center flex-between mb-4">
         <div>
           <div className="page-title">Projects</div>
-          <div className="text-muted" style={{ marginTop:3 }}>{myProjects.length} projects</div>
+          <div className="text-muted" style={{ marginTop:3 }}>
+            {activeTab==='active' ? myProjects.length : archivedProjects.length} projects
+          </div>
         </div>
         <div style={{ display:'flex', gap:8 }}>
           {isAdmin && (
@@ -177,81 +225,158 @@ export default function Projects({ projects, milestones, profiles, changeRequest
         </div>
       </div>
 
-      <div className="info-box mb-4" style={{ marginBottom:12 }}>
-        <Icon name="info" size={13} />
-        <span>Achieved payments are auto-calculated from <strong>Monthly Projections</strong>. Mark a project "Done" once all payments are received — it hides from projections until a Change Request is added.</span>
-      </div>
-
-      {isAdmin && changeRequests.filter(c=>c.status==='pending').length>0 && (
-        <div className="warn-box mb-4" style={{ marginBottom:12 }}>
-          <Icon name="warning" size={13} />
-          <strong>{changeRequests.filter(c=>c.status==='pending').length} pending Change Request(s)</strong>&nbsp;awaiting approval.
+      {/* ── Tabs ─────────────────────────────────────────────── */}
+      {isAdmin && (
+        <div style={{ display:'flex', borderBottom:'2px solid var(--border1)', marginBottom:14 }}>
+          <button style={TAB_STYLE(activeTab==='active')}   onClick={() => handleTabChange('active')}>
+            Active Projects ({myProjects.length})
+          </button>
+          <button style={TAB_STYLE(activeTab==='archived')} onClick={() => handleTabChange('archived')}>
+            <Icon name="archive" size={13} /> Archived ({archivedProjects.length})
+          </button>
         </div>
       )}
 
-      <div className="card">
-        <div className="table-wrap"><table>
-          <thead><tr>
-            <th>Project</th><th>Client</th><th>Type</th><th>Portal</th>
-            {isAdmin && <th>PM</th>}
-            {isAdmin && <th>Coordinator</th>}
-            <th>Target</th><th>Net Target</th><th>Achieved</th><th>Progress</th><th>Status</th>
-            <th style={{ textAlign:'right' }}>Actions</th>
-          </tr></thead>
-          <tbody>
-            {myProjects.length===0 && <tr><td colSpan={11}><EmptyState icon="📁" message="No projects yet" /></td></tr>}
-            {myProjects.map(pr => {
-              const achieved    = getAchieved(pr.id);
-              const netTarget   = calcNet(parseFloat(pr.target_payment)||0, pr.portal);
-              const netAchieved = calcNet(achieved, pr.portal);
-              const pm          = pms.find(u=>u.id===pr.manager_id);
-              const hasC        = COMMISSION_PORTALS.includes(pr.portal);
-              const p           = pct(netAchieved, netTarget);
-              const crCount     = pendingCRs(pr.id).length;
-              return (
-                <tr key={pr.id}>
-                  <td>
-                    <div style={{ fontWeight:700 }}>{pr.name}</div>
-                    {crCount>0 && <span className="badge badge-yellow" style={{ fontSize:10,marginTop:3 }}>⏳ {crCount} CR pending</span>}
-                  </td>
-                  <td style={{ color:'var(--text2)' }}>{pr.client}</td>
-                  <td><span className="tag">{pr.type}</span></td>
-                  <td>
-                    <span className="tag">{pr.portal}</span>
-                    {hasC && <span className="badge badge-yellow" style={{ fontSize:10,marginLeft:4 }}>-20%</span>}
-                  </td>
-                  {isAdmin && <td>{pm?<div style={{display:'flex',alignItems:'center',gap:5}}><Avatar name={pm.name} id={pm.id} size={22}/><span style={{fontSize:12}}>{pm.name}</span></div>:'—'}</td>}
-                  {isAdmin && <td style={{fontSize:12,color:'var(--text2)'}}>{pr.coordinator_name||<span style={{color:'var(--text4)'}}>—</span>}</td>}
-                  <td className="mono" style={{ fontSize:12 }}>{fmt(pr.target_payment)}</td>
-                  <td className="mono" style={{ fontSize:12,color:hasC?'var(--warning)':'inherit',fontWeight:hasC?600:400 }}>{fmt(netTarget)}</td>
-                  <td className="mono" style={{ fontSize:12,color:'var(--success)',fontWeight:600 }}>{fmt(netAchieved)}</td>
-                  <td style={{ minWidth:90 }}>
-                    <div style={{ fontSize:11,color:'var(--text3)' }}>{p}%</div>
-                    <ProgressBar value={p} />
-                  </td>
-                  <td>
-                    {pr.all_payments_received
-                      ? <span className="badge badge-green">✓ Done</span>
-                      : <span className={`badge badge-${pr.status==='on_hold'?'yellow':'indigo'}`}>{pr.status}</span>
-                    }
-                  </td>
-                  <td style={{ textAlign:'right' }}>
-                    <div style={{ display:'flex',gap:4,justifyContent:'flex-end' }}>
-                      {!pr.all_payments_received && <button className="btn btn-xs btn-success" onClick={()=>{if(window.confirm('Mark all payments received? Project will hide from projections.'))onMarkReceived(pr.id)}}>✓ Done</button>}
-                      {pr.all_payments_received  && <button className="btn btn-xs btn-outline"  onClick={()=>openCR(pr.id)}><Icon name="cr" size={11}/>CR</button>}
-                      <button className="btn btn-sm btn-ghost btn-icon" onClick={()=>openEdit(pr)}><Icon name="edit" size={13}/></button>
-                      {isSuperAdmin && <button className="btn btn-sm btn-danger btn-icon" onClick={()=>{if(window.confirm('Delete project and all its data?'))onDelete(pr.id)}}><Icon name="delete" size={13}/></button>}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table></div>
-      </div>
+      {/* ── Info / warnings (active tab only) ────────────────── */}
+      {activeTab==='active' && <>
+        <div className="info-box mb-4" style={{ marginBottom:12 }}>
+          <Icon name="info" size={13} />
+          <span>Achieved payments are auto-calculated from <strong>Monthly Projections</strong>. Mark a project "Done" once all payments are received — it hides from projections until a Change Request is added.</span>
+        </div>
+        {isAdmin && changeRequests.filter(c=>c.status==='pending').length>0 && (
+          <div className="warn-box mb-4" style={{ marginBottom:12 }}>
+            <Icon name="warning" size={13} />
+            <strong>{changeRequests.filter(c=>c.status==='pending').length} pending Change Request(s)</strong>&nbsp;awaiting approval.
+          </div>
+        )}
+      </>}
+
+      {/* ── Bulk-delete bar ───────────────────────────────────── */}
+      {isSuperAdmin && selected.size > 0 && (
+        <div style={{ background:'var(--danger)', color:'white', padding:'9px 16px', borderRadius:7, display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+          <span style={{ fontWeight:600 }}>{selected.size} project{selected.size!==1?'s':''} selected</span>
+          <div style={{ display:'flex', gap:8 }}>
+            <button className="btn btn-sm" style={{ background:'rgba(255,255,255,.15)', color:'white', border:'1px solid rgba(255,255,255,.3)' }} onClick={() => setSelected(new Set())}>
+              Clear
+            </button>
+            <button className="btn btn-sm" style={{ background:'white', color:'var(--danger)', fontWeight:700 }} onClick={handleBulkDelete}>
+              <Icon name="delete" size={13} />Delete Selected
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ══ ACTIVE TAB ══════════════════════════════════════════ */}
+      {activeTab==='active' && (
+        <div className="card">
+          <div className="table-wrap"><table>
+            <thead><tr>
+              {isSuperAdmin && <th style={{width:36}}><input type="checkbox" checked={selected.size===myProjects.length&&myProjects.length>0} onChange={()=>toggleAll(myProjects)}/></th>}
+              <th>Project</th><th>Client</th><th>Type</th><th>Portal</th>
+              {isAdmin && <th>PM</th>}
+              {isAdmin && <th>Coordinator</th>}
+              <th>Target</th><th>Net Target</th><th>Achieved</th><th>Progress</th><th>Status</th>
+              <th style={{ textAlign:'right' }}>Actions</th>
+            </tr></thead>
+            <tbody>
+              {myProjects.length===0 && <tr><td colSpan={15}><EmptyState icon="📁" message="No active projects" /></td></tr>}
+              {myProjects.map(pr => {
+                const achieved    = getAchieved(pr.id);
+                const netTarget   = calcNet(parseFloat(pr.target_payment)||0, pr.portal);
+                const netAchieved = calcNet(achieved, pr.portal);
+                const pm          = pms.find(u=>u.id===pr.manager_id);
+                const hasC        = COMMISSION_PORTALS.includes(pr.portal);
+                const p           = pct(netAchieved, netTarget);
+                const crCount     = pendingCRs(pr.id).length;
+                return (
+                  <tr key={pr.id} style={selected.has(pr.id)?{background:'var(--primary-lt)'}:{}}>
+                    {isSuperAdmin && <td><input type="checkbox" checked={selected.has(pr.id)} onChange={()=>toggleSelect(pr.id)}/></td>}
+                    <td>
+                      <div style={{ fontWeight:700 }}>{pr.name}</div>
+                      {crCount>0 && <span className="badge badge-yellow" style={{ fontSize:10,marginTop:3 }}>⏳ {crCount} CR pending</span>}
+                    </td>
+                    <td style={{ color:'var(--text2)' }}>{pr.client}</td>
+                    <td><span className="tag">{pr.type}</span></td>
+                    <td>
+                      <span className="tag">{pr.portal}</span>
+                      {hasC && <span className="badge badge-yellow" style={{ fontSize:10,marginLeft:4 }}>-20%</span>}
+                    </td>
+                    {isAdmin && <td>{pm?<div style={{display:'flex',alignItems:'center',gap:5}}><Avatar name={pm.name} id={pm.id} size={22}/><span style={{fontSize:12}}>{pm.name}</span></div>:'—'}</td>}
+                    {isAdmin && <td style={{fontSize:12,color:'var(--text2)'}}>{pr.coordinator_name||<span style={{color:'var(--text4)'}}>—</span>}</td>}
+                    <td className="mono" style={{ fontSize:12 }}>{fmt(pr.target_payment)}</td>
+                    <td className="mono" style={{ fontSize:12,color:hasC?'var(--warning)':'inherit',fontWeight:hasC?600:400 }}>{fmt(netTarget)}</td>
+                    <td className="mono" style={{ fontSize:12,color:'var(--success)',fontWeight:600 }}>{fmt(netAchieved)}</td>
+                    <td style={{ minWidth:90 }}>
+                      <div style={{ fontSize:11,color:'var(--text3)' }}>{p}%</div>
+                      <ProgressBar value={p} />
+                    </td>
+                    <td>
+                      {pr.all_payments_received
+                        ? <span className="badge badge-green">✓ Done</span>
+                        : <span className={`badge badge-${pr.status==='on_hold'?'yellow':'indigo'}`}>{pr.status}</span>
+                      }
+                    </td>
+                    <td style={{ textAlign:'right' }}>
+                      <div style={{ display:'flex',gap:4,justifyContent:'flex-end' }}>
+                        {!pr.all_payments_received && <button className="btn btn-xs btn-success" onClick={()=>{if(window.confirm('Mark all payments received? Project will hide from projections.'))onMarkReceived(pr.id)}}>✓ Done</button>}
+                        {pr.all_payments_received  && <button className="btn btn-xs btn-outline"  onClick={()=>openCR(pr.id)}><Icon name="cr" size={11}/>CR</button>}
+                        <button className="btn btn-sm btn-ghost btn-icon" onClick={()=>openEdit(pr)}><Icon name="edit" size={13}/></button>
+                        {isAdmin && <button className="btn btn-sm btn-ghost btn-icon" title="Archive" onClick={()=>handleArchive(pr.id)}><Icon name="archive" size={13}/></button>}
+                        {isSuperAdmin && <button className="btn btn-sm btn-danger btn-icon" onClick={()=>{if(window.confirm('Delete project and all its data?'))onDelete(pr.id)}}><Icon name="delete" size={13}/></button>}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table></div>
+        </div>
+      )}
+
+      {/* ══ ARCHIVED TAB ════════════════════════════════════════ */}
+      {activeTab==='archived' && (
+        <div className="card">
+          <div className="table-wrap"><table>
+            <thead><tr>
+              {isSuperAdmin && <th style={{width:36}}><input type="checkbox" checked={selected.size===archivedProjects.length&&archivedProjects.length>0} onChange={()=>toggleAll(archivedProjects)}/></th>}
+              <th>Project</th><th>Client</th><th>Type</th><th>Portal</th>
+              {isAdmin && <th>PM</th>}
+              {isAdmin && <th>Coordinator</th>}
+              <th>Target</th><th style={{ textAlign:'right' }}>Actions</th>
+            </tr></thead>
+            <tbody>
+              {archivedLoading && <tr><td colSpan={12} style={{textAlign:'center',padding:24}}><Spinner/></td></tr>}
+              {!archivedLoading && archivedProjects.length===0 && <tr><td colSpan={12}><EmptyState icon="🗂️" message="No archived projects"/></td></tr>}
+              {archivedProjects.map(pr => {
+                const pm = pms.find(u=>u.id===pr.manager_id);
+                return (
+                  <tr key={pr.id} style={{opacity:.85, ...(selected.has(pr.id)?{background:'var(--primary-lt)'}:{})}}>
+                    {isSuperAdmin && <td><input type="checkbox" checked={selected.has(pr.id)} onChange={()=>toggleSelect(pr.id)}/></td>}
+                    <td style={{fontWeight:700}}>{pr.name}</td>
+                    <td style={{color:'var(--text2)'}}>{pr.client}</td>
+                    <td><span className="tag">{pr.type}</span></td>
+                    <td><span className="tag">{pr.portal}</span></td>
+                    {isAdmin && <td style={{fontSize:12}}>{pm?.name||'—'}</td>}
+                    {isAdmin && <td style={{fontSize:12,color:'var(--text2)'}}>{pr.coordinator_name||'—'}</td>}
+                    <td className="mono" style={{fontSize:12}}>{fmt(pr.target_payment)}</td>
+                    <td style={{textAlign:'right'}}>
+                      <div style={{display:'flex',gap:4,justifyContent:'flex-end'}}>
+                        <button className="btn btn-xs btn-outline" onClick={()=>handleRestore(pr.id)}>
+                          <Icon name="restore" size={11}/>Restore
+                        </button>
+                        {isSuperAdmin && <button className="btn btn-sm btn-danger btn-icon" onClick={()=>{if(window.confirm('Permanently delete this project and all its data?'))onDelete(pr.id)}}><Icon name="delete" size={13}/></button>}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table></div>
+        </div>
+      )}
 
       {/* Change Requests table */}
-      {isAdmin && changeRequests.length>0 && (
+      {isAdmin && activeTab==='active' && changeRequests.length>0 && (
         <div className="card" style={{ marginTop:14 }}>
           <div className="card-header"><span className="card-title">Change Requests</span></div>
           <div className="table-wrap"><table>

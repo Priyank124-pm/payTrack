@@ -1,16 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { fmt, pct, Avatar, ProgressBar, EmptyState, Spinner, MONTHS, YEARS, CURRENT_MONTH, CURRENT_YEAR } from '../components/UI';
+import { fmt, pct, Avatar, ProgressBar, EmptyState, Spinner, MONTHS, YEARS, CURRENT_MONTH, CURRENT_YEAR, Icon } from '../components/UI';
 import { calcNet, COMMISSION_PORTALS } from '../hooks/useData';
 import { reportsAPI } from '../api';
 import { useAuth } from '../context/AuthContext';
 
-export default function Reports({ projects }) {
+function toCSV(rows) {
+  return rows.map(row =>
+    row.map(cell => {
+      const s = String(cell ?? '');
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+    }).join(',')
+  ).join('\n');
+}
+
+export default function Reports({ projects, profiles = [] }) {
   const { isAdmin, effectiveManagerId } = useAuth();
-  const [month,   setMonth]   = useState(CURRENT_MONTH);
-  const [year,    setYear]    = useState(CURRENT_YEAR);
-  const [data,    setData]    = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState('');
+  const [month,    setMonth]    = useState(CURRENT_MONTH);
+  const [year,     setYear]     = useState(CURRENT_YEAR);
+  const [filterPM, setFilterPM] = useState('all');
+  const [data,     setData]     = useState(null);
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState('');
+
+  const pms = profiles.filter(u => u.role === 'project_manager');
 
   const load = async () => {
     setLoading(true); setError('');
@@ -23,7 +35,51 @@ export default function Reports({ projects }) {
 
   useEffect(() => { load(); }, [month, year]); // eslint-disable-line
 
-  const { pmSummary = [], projectDetail = [] } = data || {};
+  const { pmSummary: rawPmSummary = [], projectDetail: rawProjectDetail = [] } = data || {};
+
+  const pmSummary    = filterPM === 'all' ? rawPmSummary    : rawPmSummary.filter(r => r.pm_id === filterPM);
+  const projectDetail= filterPM === 'all' ? rawProjectDetail: rawProjectDetail.filter(pd => {
+    const pr = projects.find(p => p.id === pd.id);
+    return pr?.manager_id === filterPM;
+  });
+
+  const downloadCSV = () => {
+    const monthLabel = MONTHS[month-1]?.label;
+    const rows = [
+      [`Monthly Report — ${monthLabel} ${year}`], [],
+
+      // PM Performance
+      ['PM Performance'],
+      ['PM Name','Projects','Milestones','Gross Target ($)','Net Target ($)','Gross Achieved ($)','Paid','Partial','Pending','Overdue'],
+      ...pmSummary.map(r => {
+        const gross = parseFloat(r.gross_target) || 0;
+        const ach   = parseFloat(r.gross_achieved) || 0;
+        const net   = netForRow(r);
+        return [r.pm_name, r.project_count, r.milestone_count, gross.toFixed(2), net.toFixed(2), ach.toFixed(2), r.paid_count, r.partial_count, r.pending_count, r.overdue_count];
+      }),
+      [],
+
+      // Project Detail
+      ['Project Detail'],
+      ['Project','Client','Portal','PM','Gross Target ($)','Commission ($)','Net Target ($)','Achieved ($)','Progress %','Payment Status'],
+      ...projectDetail.map(pd => {
+        const gross = parseFloat(pd.month_gross)    || 0;
+        const ach   = parseFloat(pd.month_achieved) || 0;
+        const net   = calcNet(gross, pd.portal);
+        const comm  = gross - net;
+        const progress = gross > 0 ? Math.round((ach / gross) * 100) : 0;
+        const status = ach >= gross && gross > 0 ? 'Received' : ach > 0 ? 'Partial' : 'Not Received';
+        return [pd.name, pd.client, pd.portal, pd.manager_name, gross.toFixed(2), comm.toFixed(2), net.toFixed(2), ach.toFixed(2), progress + '%', status];
+      }),
+    ];
+
+    const csv  = toCSV(rows);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = Object.assign(document.createElement('a'), { href: url, download: `report_${monthLabel}_${year}.csv` });
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const gGross    = pmSummary.reduce((s,r)=>s+(parseFloat(r.gross_target)||0),0);
   const gAchieved = pmSummary.reduce((s,r)=>s+(parseFloat(r.gross_achieved)||0),0);
@@ -56,7 +112,21 @@ export default function Reports({ projects }) {
               {YEARS.map(y=><option key={y} value={y}>{y}</option>)}
             </select>
           </div>
+          {isAdmin && pms.length > 0 && (
+            <div className="form-group" style={{marginBottom:0}}>
+              <label className="form-label">PM</label>
+              <select className="form-control form-control-sm" value={filterPM} onChange={e => setFilterPM(e.target.value)}>
+                <option value="all">All PMs</option>
+                {pms.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          )}
           <button className="btn btn-ghost btn-sm" onClick={load}>{loading?<Spinner/>:'↻ Refresh'}</button>
+          {data && !loading && (
+            <button className="btn btn-outline btn-sm" onClick={downloadCSV}>
+              <Icon name="download" size={13} />Download CSV
+            </button>
+          )}
         </div>
       </div>
 
@@ -86,12 +156,12 @@ export default function Reports({ projects }) {
           <div className="card-header"><span className="card-title">PM Performance — {MONTHS[month-1]?.label} {year}</span></div>
           <div className="table-wrap"><table>
             <thead><tr>
-              <th>PM</th><th>Projects</th><th>Milestones</th>
+              <th>PM</th><th>Projects</th>
               <th>Gross Target</th><th>Gross Achieved</th>
               <th>Progress</th><th>Paid</th><th>Partial</th><th>Pending</th><th>Overdue</th>
             </tr></thead>
             <tbody>
-              {pmSummary.length===0 && <tr><td colSpan={10}><EmptyState icon="📊" message={`No data for ${MONTHS[month-1]?.label} ${year}`}/></td></tr>}
+              {pmSummary.length===0 && <tr><td colSpan={9}><EmptyState icon="📊" message={`No data for ${MONTHS[month-1]?.label} ${year}`}/></td></tr>}
               {pmSummary.map(r => {
                 const gross    = parseFloat(r.gross_target)||0;
                 const achieved = parseFloat(r.gross_achieved)||0;
@@ -105,7 +175,6 @@ export default function Reports({ projects }) {
                       </div>
                     </td>
                     <td><span className="badge badge-indigo">{r.project_count}</span></td>
-                    <td><span className="badge badge-gray">{r.milestone_count}</span></td>
                     <td className="mono" style={{fontSize:12}}>{fmt(gross)}</td>
                     <td className="mono" style={{fontSize:12,color:'var(--success)',fontWeight:600}}>{fmt(achieved)}</td>
                     <td style={{minWidth:90}}><div style={{fontSize:11,color:'var(--text3)'}}>{p}%</div><ProgressBar value={p}/></td>

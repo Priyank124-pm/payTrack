@@ -48,13 +48,16 @@ export const usersAPI = {
 
 // ── Projects ───────────────────────────────────────────────────
 export const projectsAPI = {
-  list:         ()         => get('/api/projects'),
+  list:         (params={})=> { const qs=new URLSearchParams(params).toString(); return get(`/api/projects${qs?'?'+qs:''}`); },
   get:          (id)       => get(`/api/projects/${id}`),
   create:       (body)     => post('/api/projects', body),
   update:       (id, body) => patch(`/api/projects/${id}`, body),
   markReceived: (id)       => patch(`/api/projects/${id}/mark-received`),
+  archive:      (id)       => patch(`/api/projects/${id}/archive`),
+  unarchive:    (id)       => patch(`/api/projects/${id}/unarchive`),
   remove:       (id)       => del(`/api/projects/${id}`),
   bulkImport:   (body)     => post('/api/projects/bulk-import', body),
+  bulkDelete:   (ids)      => post('/api/projects/bulk-delete', { ids }),
 };
 
 // ── Milestones ─────────────────────────────────────────────────

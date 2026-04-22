@@ -7,6 +7,7 @@ import UserManagement from './pages/UserManagement';
 import Projects from './pages/Projects';
 import MonthlyProjections from './pages/MonthlyProjections';
 import Reports from './pages/Reports';
+import LastPayments from './pages/LastPayments';
 import { Icon, Modal, Spinner, avatarColor } from './components/UI';
 import { authAPI } from './api';
 import './styles/global.css';
@@ -103,7 +104,11 @@ function AppShell() {
   const [showChangePw, setShowChangePw] = useState(false);
 
   const { profiles,   createProfile, updateProfile, deleteProfile }                   = useProfiles();
-  const { projects,   createProject, updateProject, deleteProject, markAllReceived, bulkImportProjects }  = useProjects();
+  const {
+    projects, archivedProjects, archivedLoading, loadArchivedProjects,
+    createProject, updateProject, deleteProject, markAllReceived,
+    archiveProject, unarchiveProject, bulkDeleteProjects, bulkImportProjects,
+  } = useProjects();
   const { milestones, addMilestone,  updateMilestone, deleteMilestone }               = useMilestones();
   const { crs,        addCR,         approveCR,   rejectCR }                          = useChangeRequests();
 
@@ -120,13 +125,15 @@ function AppShell() {
     { id: 'dashboard',   icon: 'dashboard',  label: 'Dashboard' },
     ...(isAdmin ? [{ id: 'users', icon: 'users', label: 'User Management' }] : []),
     { id: 'projects',    icon: 'projects',   label: 'Projects' },
-    { id: 'projections', icon: 'projection', label: 'Monthly Projections' },
-    { id: 'reports',     icon: 'report',     label: 'Reports' },
+    { id: 'projections',  icon: 'projection', label: 'Monthly Projections' },
+    { id: 'lastpayments', icon: 'clock',      label: 'Last Payments' },
+    { id: 'reports',      icon: 'report',     label: 'Reports' },
   ];
 
   const titles = {
     dashboard: 'Dashboard', users: 'User Management',
-    projects: 'Projects', projections: 'Monthly Projections', reports: 'Reports',
+    projects: 'Projects', projections: 'Monthly Projections',
+    lastpayments: 'Last Payments', reports: 'Reports',
   };
 
   const pendingCRs = crs.filter(c => c.status === 'pending').length;
@@ -140,6 +147,8 @@ function AppShell() {
           projects={projects} milestones={milestones} profiles={profiles} changeRequests={crs}
           onAdd={createProject} onUpdate={updateProject} onDelete={deleteProject}
           onMarkReceived={markAllReceived} onBulkImport={bulkImportProjects}
+          onArchive={archiveProject} onUnarchive={unarchiveProject} onBulkDelete={bulkDeleteProjects}
+          archivedProjects={archivedProjects} archivedLoading={archivedLoading} onLoadArchived={loadArchivedProjects}
           onAddCR={addCR} onApproveCR={approveCR} onRejectCR={rejectCR}
         />
       );
@@ -149,7 +158,8 @@ function AppShell() {
           onAdd={addMilestone} onUpdate={updateMilestone} onDelete={deleteMilestone}
         />
       );
-      case 'reports':     return <Reports projects={projects} />;
+      case 'lastpayments':return <LastPayments projects={projects} milestones={milestones} profiles={profiles} />;
+      case 'reports':     return <Reports projects={projects} profiles={profiles} />;
       default:            return null;
     }
   };
