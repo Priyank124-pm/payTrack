@@ -8,8 +8,9 @@ router.use(authenticate);
 
 // Helper — verify user can access a project
 async function canAccessProject(user, projectId) {
-  const [rows] = await pool.query('SELECT manager_id FROM projects WHERE id = ?', [projectId]);
+  const [rows] = await pool.query('SELECT manager_id, coordinator_id FROM projects WHERE id = ?', [projectId]);
   if (!rows.length) return false;
+  if (user.role === 'coordinator') return rows[0].coordinator_id === user.id;
   const managerId = getEffectiveManagerId(user);
   if (!managerId) return true; // admins access all
   return rows[0].manager_id === managerId;
@@ -18,7 +19,6 @@ async function canAccessProject(user, projectId) {
 // ── GET /api/milestones?project_id=&month=&year= ───────────────
 router.get('/', async (req, res) => {
   try {
-    const managerId = getEffectiveManagerId(req.user);
     let sql = `
       SELECT m.*, p.name AS project_name, p.portal, p.client
       FROM milestones m
@@ -27,9 +27,15 @@ router.get('/', async (req, res) => {
     const params = [];
     const wheres = [];
 
-    if (managerId) {
-      wheres.push('p.manager_id = ?');
-      params.push(managerId);
+    if (req.user.role === 'coordinator') {
+      wheres.push('p.coordinator_id = ?');
+      params.push(req.user.id);
+    } else {
+      const managerId = getEffectiveManagerId(req.user);
+      if (managerId) {
+        wheres.push('p.manager_id = ?');
+        params.push(managerId);
+      }
     }
     if (req.query.project_id) {
       wheres.push('m.project_id = ?');

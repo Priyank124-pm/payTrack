@@ -57,22 +57,23 @@ function mapProjectRow(row) {
   const project_health = health || 'green';
 
   return {
-    project_name:   get('project name', 'project'),
-    client_name:    get('client name', 'client'),
-    manager_name:   get('project manager', 'pm', 'manager'),
+    project_name:     get('project name', 'project'),
+    client_name:      get('client name', 'client'),
+    manager_name:     get('project manager', 'pm', 'manager'),
+    coordinator_name: get('project coordinator', 'coordinator'),
     portal,
     type,
     project_health,
-    target_payment: parseFloat(get('t p', 'tp', 'target payment', 'target', 'amount')) || 0,
+    target_payment:   parseFloat(get('t p', 'tp', 'target payment', 'target', 'amount')) || 0,
   };
 }
 
 function downloadSampleCSV() {
   const rows = [
-    'Project Name,Client Name,Platform,Project Health,Type,T P,Project Manager',
-    'Mallorca,Lukas,Upwork,Green,Monthly,1280,John Smith',
-    'Swivics,Gareth,Fiverr,Green,Monthly,1000,Jane Doe',
-    'Hotel App,Alex,Fiverr,Amber,Milestone,900,John Smith',
+    'Project Name,Client Name,Platform,Project Health,Type,T P,Project Manager,Project Coordinator',
+    'Mallorca,Lukas,Upwork,Green,Monthly,1280,John Smith,Alice Cooper',
+    'Swivics,Gareth,Fiverr,Green,Monthly,,Jane Doe,Bob Martin',
+    'Hotel App,Alex,Fiverr,Amber,Milestone,,John Smith,',
   ];
   const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
@@ -132,19 +133,21 @@ export default function Projects({ projects, milestones, profiles, changeRequest
   const getAchieved = pid => milestones.filter(m=>m.project_id===pid).reduce((s,m)=>s+(parseFloat(m.achieved)||0),0);
   const pendingCRs  = pid => changeRequests.filter(c=>c.project_id===pid&&c.status==='pending');
 
+  const coordinators = profiles.filter(u => u.role === 'coordinator');
+
   const openAdd = () => {
     const defPM = me?.role==='project_manager'?me.id:me?.role==='coordinator'?me.manager_id:pms[0]?.id||'';
-    setForm({ name:'',client:'',type:'Monthly',portal:'Upwork',manager_id:defPM,target_payment:'' });
+    setForm({ name:'',client:'',type:'Monthly',portal:'Upwork',manager_id:defPM,coordinator_id:'',target_payment:'' });
     setError(''); setModal('add');
   };
-  const openEdit = pr => { setForm({...pr}); setError(''); setModal('edit'); };
+  const openEdit = pr => { setForm({...pr, coordinator_id: pr.coordinator_id||''}); setError(''); setModal('edit'); };
 
   const save = async () => {
     if (!form.name||!form.client) return setError('Name and client required.');
     setSaving(true); setError('');
     try {
       if (modal==='add') await onAdd(form);
-      else await onUpdate(form.id,{name:form.name,client:form.client,type:form.type,portal:form.portal,manager_id:form.manager_id,target_payment:parseFloat(form.target_payment)||0});
+      else await onUpdate(form.id,{name:form.name,client:form.client,type:form.type,portal:form.portal,manager_id:form.manager_id,coordinator_id:form.coordinator_id||null,target_payment:parseFloat(form.target_payment)||0});
       setModal(null);
     } catch(e){setError(e.message);}
     finally{setSaving(false);}
@@ -191,6 +194,7 @@ export default function Projects({ projects, milestones, profiles, changeRequest
           <thead><tr>
             <th>Project</th><th>Client</th><th>Type</th><th>Portal</th>
             {isAdmin && <th>PM</th>}
+            {isAdmin && <th>Coordinator</th>}
             <th>Target</th><th>Net Target</th><th>Achieved</th><th>Progress</th><th>Status</th>
             <th style={{ textAlign:'right' }}>Actions</th>
           </tr></thead>
@@ -217,6 +221,7 @@ export default function Projects({ projects, milestones, profiles, changeRequest
                     {hasC && <span className="badge badge-yellow" style={{ fontSize:10,marginLeft:4 }}>-20%</span>}
                   </td>
                   {isAdmin && <td>{pm?<div style={{display:'flex',alignItems:'center',gap:5}}><Avatar name={pm.name} id={pm.id} size={22}/><span style={{fontSize:12}}>{pm.name}</span></div>:'—'}</td>}
+                  {isAdmin && <td style={{fontSize:12,color:'var(--text2)'}}>{pr.coordinator_name||<span style={{color:'var(--text4)'}}>—</span>}</td>}
                   <td className="mono" style={{ fontSize:12 }}>{fmt(pr.target_payment)}</td>
                   <td className="mono" style={{ fontSize:12,color:hasC?'var(--warning)':'inherit',fontWeight:hasC?600:400 }}>{fmt(netTarget)}</td>
                   <td className="mono" style={{ fontSize:12,color:'var(--success)',fontWeight:600 }}>{fmt(netAchieved)}</td>
@@ -297,6 +302,11 @@ export default function Projects({ projects, milestones, profiles, changeRequest
               <select className="form-control" value={form.manager_id||''} disabled={!isAdmin} onChange={e=>setF('manager_id',e.target.value)}>
                 {pms.map(pm=><option key={pm.id} value={pm.id}>{pm.name}</option>)}
               </select></div>
+            <div className="form-group"><label className="form-label">Project Coordinator <span style={{fontWeight:400,color:'var(--text4)'}}>— optional</span></label>
+              <select className="form-control" value={form.coordinator_id||''} onChange={e=>setF('coordinator_id',e.target.value)}>
+                <option value="">None</option>
+                {coordinators.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              </select></div>
             <div className="form-group"><label className="form-label">Target Payment ($) <span style={{fontWeight:400,color:'var(--text4)'}}>— optional</span></label><input className="form-control" type="number" min="0" value={form.target_payment||''} onChange={e=>setF('target_payment',e.target.value)} placeholder="Leave blank if unknown"/></div>
           </div>
           <div className="info-box mt-3" style={{ marginTop:12 }}><Icon name="info" size={13}/>Milestones are managed in <strong>Monthly Projections</strong>.</div>
@@ -329,7 +339,7 @@ export default function Projects({ projects, milestones, profiles, changeRequest
             <>
               <div className="info-box" style={{ marginBottom:14 }}>
                 <Icon name="info" size={13} />
-                <span>Upload one CSV for all PMs. Required columns: <strong>Project Name</strong>, <strong>Client Name</strong>, <strong>Platform</strong>, <strong>Project Manager</strong>. Optional: <strong>Project Health</strong> (Green/Amber), <strong>Type</strong> (Monthly/Hourly/Milestone), <strong>T P</strong> (target payment).</span>
+                <span>Upload one CSV for all PMs. Required: <strong>Project Name</strong>, <strong>Client Name</strong>, <strong>Platform</strong>, <strong>Project Manager</strong>. Optional: <strong>Project Coordinator</strong>, <strong>Project Health</strong> (Green/Amber), <strong>Type</strong> (Monthly/Hourly/Milestone), <strong>T P</strong> (target payment).</span>
               </div>
 
               <div className="form-group" style={{ marginBottom:14 }}>
@@ -358,7 +368,7 @@ export default function Projects({ projects, milestones, profiles, changeRequest
                     <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
                       <thead>
                         <tr style={{ background:'var(--bg2)', borderBottom:'1px solid var(--border1)' }}>
-                          {['Project Name','Client','Portal','Type','Health','Target ($)','Project Manager'].map(h => (
+                          {['Project Name','Client','Portal','Type','Health','Target ($)','Project Manager','Coordinator'].map(h => (
                             <th key={h} style={{ padding:'7px 10px', textAlign:'left', fontWeight:600, whiteSpace:'nowrap' }}>{h}</th>
                           ))}
                         </tr>
@@ -377,6 +387,7 @@ export default function Projects({ projects, milestones, profiles, changeRequest
                             </td>
                             <td style={{ padding:'6px 10px' }} className="mono">{row.target_payment > 0 ? fmt(row.target_payment) : '—'}</td>
                             <td style={{ padding:'6px 10px' }}>{row.manager_name || <span style={{ color:'var(--danger)' }}>missing</span>}</td>
+                            <td style={{ padding:'6px 10px', color:'var(--text3)' }}>{row.coordinator_name || <span style={{ color:'var(--text4)' }}>—</span>}</td>
                           </tr>
                         ))}
                       </tbody>

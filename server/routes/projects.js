@@ -11,20 +11,27 @@ const COMMISSION_PORTALS = ['Fiverr', 'Upwork'];
 // ── GET /api/projects ──────────────────────────────────────────
 router.get('/', async (req, res) => {
   try {
-    const managerId = getEffectiveManagerId(req.user);
     let sql = `
       SELECT p.*,
              u.name  AS manager_name,
              u.email AS manager_email,
+             c.name  AS coordinator_name,
              COALESCE(SUM(m.achieved), 0) AS total_achieved
       FROM projects p
       LEFT JOIN users u    ON u.id = p.manager_id
+      LEFT JOIN users c    ON c.id = p.coordinator_id
       LEFT JOIN milestones m ON m.project_id = p.id
     `;
     const params = [];
-    if (managerId) {
-      sql += ' WHERE p.manager_id = ?';
-      params.push(managerId);
+    if (req.user.role === 'coordinator') {
+      sql += ' WHERE p.coordinator_id = ?';
+      params.push(req.user.id);
+    } else {
+      const managerId = getEffectiveManagerId(req.user);
+      if (managerId) {
+        sql += ' WHERE p.manager_id = ?';
+        params.push(managerId);
+      }
     }
     sql += ' GROUP BY p.id ORDER BY p.created_at DESC';
     const [rows] = await pool.query(sql, params);
@@ -76,7 +83,7 @@ router.post('/',
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-    const { name, client, type, portal, manager_id, target_payment } = req.body;
+    const { name, client, type, portal, manager_id, coordinator_id, target_payment } = req.body;
 
     // Non-admins can only create for their own manager_id
     const effectiveId = getEffectiveManagerId(req.user);
@@ -86,13 +93,15 @@ router.post('/',
 
     try {
       await pool.query(
-        `INSERT INTO projects (id, name, client, type, portal, manager_id, target_payment)
-         VALUES (UUID(), ?, ?, ?, ?, ?, ?)`,
-        [name, client, type, portal, manager_id, parseFloat(target_payment)]
+        `INSERT INTO projects (id, name, client, type, portal, manager_id, coordinator_id, target_payment)
+         VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?)`,
+        [name, client, type, portal, manager_id, coordinator_id || null, parseFloat(target_payment) || 0]
       );
       const [rows] = await pool.query(
-        `SELECT p.*, u.name AS manager_name, 0 AS total_achieved
-         FROM projects p LEFT JOIN users u ON u.id = p.manager_id
+        `SELECT p.*, u.name AS manager_name, c.name AS coordinator_name, 0 AS total_achieved
+         FROM projects p
+         LEFT JOIN users u ON u.id = p.manager_id
+         LEFT JOIN users c ON c.id = p.coordinator_id
          WHERE p.name = ? AND p.client = ? ORDER BY p.created_at DESC LIMIT 1`,
         [name, client]
       );
@@ -146,12 +155,27 @@ router.post('/bulk-import', isAdmin,
         const status        = HEALTH_MAP[(row.project_health || '').toLowerCase()] || 'active';
         const targetPayment = parseFloat(row.target_payment) || 0;
 
+        // Resolve optional coordinator
+        let coordinatorId = null;
+        const coordName = (row.coordinator_name || '').trim();
+        if (coordName) {
+          const [coords] = await pool.query(
+            "SELECT id FROM users WHERE role = 'coordinator' AND LOWER(TRIM(name)) = LOWER(TRIM(?))",
+            [coordName]
+          );
+          if (!coords.length) {
+            importErrors.push({ project: projectName, error: `Coordinator "${coordName}" not found` });
+            continue;
+          }
+          coordinatorId = coords[0].id;
+        }
+
         await pool.query(
-          `INSERT INTO projects (id, name, client, type, portal, manager_id, target_payment, status, all_payments_received)
-           VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, 0)`,
-          [projectName, clientName, type, portal, managerId, targetPayment, status]
+          `INSERT INTO projects (id, name, client, type, portal, manager_id, coordinator_id, target_payment, status, all_payments_received)
+           VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+          [projectName, clientName, type, portal, managerId, coordinatorId, targetPayment, status]
         );
-        created.push({ project: projectName, manager: managerName });
+        created.push({ project: projectName, manager: managerName, coordinator: coordName || '—' });
       } catch (err) {
         console.error(err);
         importErrors.push({ project: row.project_name || '?', error: err.message });
@@ -173,7 +197,7 @@ router.patch('/:id', async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const allowed = ['name','client','type','portal','manager_id','target_payment','status','all_payments_received'];
+    const allowed = ['name','client','type','portal','manager_id','coordinator_id','target_payment','status','all_payments_received'];
     const fields = [], values = [];
     for (const key of allowed) {
       if (req.body[key] !== undefined) {

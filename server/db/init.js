@@ -22,12 +22,14 @@ CREATE TABLE IF NOT EXISTS projects (
   type                  ENUM('Monthly','Hourly','Milestone') NOT NULL DEFAULT 'Monthly',
   portal                VARCHAR(60)    NOT NULL DEFAULT 'Direct',
   manager_id            CHAR(36)       NOT NULL,
+  coordinator_id        CHAR(36)       DEFAULT NULL,
   target_payment        DECIMAL(14,2)  DEFAULT 0.00,
   status                ENUM('active','completed','on_hold') NOT NULL DEFAULT 'active',
   all_payments_received TINYINT(1)     NOT NULL DEFAULT 0,
   created_at            DATETIME       DEFAULT CURRENT_TIMESTAMP,
   updated_at            DATETIME       DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_projects_manager FOREIGN KEY (manager_id) REFERENCES users(id) ON DELETE CASCADE
+  CONSTRAINT fk_projects_manager      FOREIGN KEY (manager_id)     REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_projects_coordinator  FOREIGN KEY (coordinator_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
 -- Milestones (monthly payment entries)
@@ -82,6 +84,14 @@ async function initDB() {
     for (const stmt of statements) {
       await conn.query(stmt);
     }
+
+    // Migrations — safe to re-run; errors are ignored when column/constraint already exists
+    const migrate = async (sql) => {
+      try { await conn.query(sql); } catch (e) { /* already applied */ }
+    };
+    await migrate(`ALTER TABLE projects ADD COLUMN coordinator_id CHAR(36) DEFAULT NULL`);
+    await migrate(`ALTER TABLE projects ADD CONSTRAINT fk_projects_coordinator FOREIGN KEY (coordinator_id) REFERENCES users(id) ON DELETE SET NULL`);
+
     console.log('✅  Database schema initialised');
   } catch (err) {
     console.error('❌  Schema init error:', err.message);
