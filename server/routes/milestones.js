@@ -2,6 +2,7 @@ const express = require('express');
 const { body, query, validationResult } = require('express-validator');
 const pool    = require('../db/pool');
 const { authenticate, getEffectiveManagerId } = require('../middleware/auth');
+const { logActivity } = require('../services/logger');
 
 const router = express.Router();
 router.use(authenticate);
@@ -98,6 +99,7 @@ router.post('/',
          ORDER BY m.created_at DESC LIMIT 1`,
         [project_id, label]
       );
+      await logActivity({ user: req.user, action: 'create', entity: 'milestone', entityId: rows[0].id, detail: `Added milestone '${label}' to project '${rows[0].project_name}'` });
       res.status(201).json(rows[0]);
     } catch (err) {
       console.error(err);
@@ -132,6 +134,7 @@ router.patch('/:id', async (req, res) => {
        WHERE m.id = ?`,
       [req.params.id]
     );
+    await logActivity({ user: req.user, action: 'update', entity: 'milestone', entityId: req.params.id, detail: `Updated milestone '${rows[0].label}' in project '${rows[0].project_name}'` });
     res.json(rows[0]);
   } catch (err) {
     console.error(err);
@@ -142,13 +145,19 @@ router.patch('/:id', async (req, res) => {
 // ── DELETE /api/milestones/:id ─────────────────────────────────
 router.delete('/:id', async (req, res) => {
   try {
-    const [ms] = await pool.query('SELECT project_id FROM milestones WHERE id = ?', [req.params.id]);
+    const [ms] = await pool.query(
+      `SELECT m.project_id, m.label, p.name AS project_name
+       FROM milestones m JOIN projects p ON p.id = m.project_id
+       WHERE m.id = ?`,
+      [req.params.id]
+    );
     if (!ms.length) return res.status(404).json({ error: 'Milestone not found' });
 
     const ok = await canAccessProject(req.user, ms[0].project_id);
     if (!ok) return res.status(403).json({ error: 'Access denied' });
 
     await pool.query('DELETE FROM milestones WHERE id = ?', [req.params.id]);
+    await logActivity({ user: req.user, action: 'delete', entity: 'milestone', entityId: req.params.id, detail: `Deleted milestone '${ms[0].label}' from project '${ms[0].project_name}'` });
     res.json({ message: 'Milestone deleted' });
   } catch (err) {
     console.error(err);

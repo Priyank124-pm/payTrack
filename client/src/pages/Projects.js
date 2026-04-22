@@ -97,6 +97,8 @@ export default function Projects({
   const [saving,       setSaving]       = useState(false);
   // Archive tab
   const [activeTab,    setActiveTab]    = useState('active');
+  // Search
+  const [searchQuery,  setSearchQuery]  = useState('');
   // Multi-select
   const [selected,     setSelected]     = useState(new Set());
   // CSV import state
@@ -167,7 +169,19 @@ export default function Projects({
   };
 
   const pms = profiles.filter(u=>u.role==='project_manager');
-  const myProjects = isAdmin ? projects : projects.filter(p=>p.manager_id===effectiveManagerId);
+  const allMyProjects = isAdmin ? projects : projects.filter(p=>p.manager_id===effectiveManagerId);
+  const myProjects = searchQuery
+    ? allMyProjects.filter(p => {
+        const q = searchQuery.toLowerCase();
+        return p.name.toLowerCase().includes(q) || p.client.toLowerCase().includes(q);
+      })
+    : allMyProjects;
+  const filteredArchived = searchQuery
+    ? archivedProjects.filter(p => {
+        const q = searchQuery.toLowerCase();
+        return p.name.toLowerCase().includes(q) || p.client.toLowerCase().includes(q);
+      })
+    : archivedProjects;
 
   const getAchieved = pid => milestones.filter(m=>m.project_id===pid).reduce((s,m)=>s+(parseFloat(m.achieved)||0),0);
   const pendingCRs  = pid => changeRequests.filter(c=>c.project_id===pid&&c.status==='pending');
@@ -212,10 +226,22 @@ export default function Projects({
         <div>
           <div className="page-title">Projects</div>
           <div className="text-muted" style={{ marginTop:3 }}>
-            {activeTab==='active' ? myProjects.length : archivedProjects.length} projects
+            {activeTab==='active' ? myProjects.length : filteredArchived.length} projects
           </div>
         </div>
-        <div style={{ display:'flex', gap:8 }}>
+        <div style={{ display:'flex', gap:8, alignItems:'flex-end', flexWrap:'wrap' }}>
+          <div style={{ position:'relative' }}>
+            <span style={{ position:'absolute', left:8, top:'50%', transform:'translateY(-50%)', color:'var(--text3)', pointerEvents:'none', display:'flex' }}>
+              <Icon name="search" size={13} />
+            </span>
+            <input
+              className="form-control form-control-sm"
+              style={{ paddingLeft:28, minWidth:180 }}
+              placeholder="Search project or client…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+          </div>
           {isAdmin && (
             <button className="btn btn-outline" onClick={() => { setCsvRows([]); setCsvError(''); setCsvResult(null); setModal('csv'); }}>
               <Icon name="upload" size={13} />Import CSV
@@ -232,7 +258,7 @@ export default function Projects({
             Active Projects ({myProjects.length})
           </button>
           <button style={TAB_STYLE(activeTab==='archived')} onClick={() => handleTabChange('archived')}>
-            <Icon name="archive" size={13} /> Archived ({archivedProjects.length})
+            <Icon name="archive" size={13} /> Archived ({filteredArchived.length})
           </button>
         </div>
       )}
@@ -338,7 +364,7 @@ export default function Projects({
         <div className="card">
           <div className="table-wrap"><table>
             <thead><tr>
-              {isSuperAdmin && <th style={{width:36}}><input type="checkbox" checked={selected.size===archivedProjects.length&&archivedProjects.length>0} onChange={()=>toggleAll(archivedProjects)}/></th>}
+              {isSuperAdmin && <th style={{width:36}}><input type="checkbox" checked={selected.size===filteredArchived.length&&filteredArchived.length>0} onChange={()=>toggleAll(filteredArchived)}/></th>}
               <th>Project</th><th>Client</th><th>Type</th><th>Portal</th>
               {isAdmin && <th>PM</th>}
               {isAdmin && <th>Coordinator</th>}
@@ -346,8 +372,8 @@ export default function Projects({
             </tr></thead>
             <tbody>
               {archivedLoading && <tr><td colSpan={12} style={{textAlign:'center',padding:24}}><Spinner/></td></tr>}
-              {!archivedLoading && archivedProjects.length===0 && <tr><td colSpan={12}><EmptyState icon="🗂️" message="No archived projects"/></td></tr>}
-              {archivedProjects.map(pr => {
+              {!archivedLoading && filteredArchived.length===0 && <tr><td colSpan={12}><EmptyState icon="🗂️" message="No archived projects"/></td></tr>}
+              {filteredArchived.map(pr => {
                 const pm = pms.find(u=>u.id===pr.manager_id);
                 return (
                   <tr key={pr.id} style={{opacity:.85, ...(selected.has(pr.id)?{background:'var(--primary-lt)'}:{})}}>

@@ -15,12 +15,13 @@ function toCSV(rows) {
 
 export default function Reports({ projects, profiles = [] }) {
   const { isAdmin, effectiveManagerId } = useAuth();
-  const [month,    setMonth]    = useState(CURRENT_MONTH);
-  const [year,     setYear]     = useState(CURRENT_YEAR);
-  const [filterPM, setFilterPM] = useState('all');
-  const [data,     setData]     = useState(null);
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState('');
+  const [month,       setMonth]       = useState(CURRENT_MONTH);
+  const [year,        setYear]        = useState(CURRENT_YEAR);
+  const [filterPM,    setFilterPM]    = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [data,        setData]        = useState(null);
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState('');
 
   const pms = profiles.filter(u => u.role === 'project_manager');
 
@@ -38,9 +39,13 @@ export default function Reports({ projects, profiles = [] }) {
   const { pmSummary: rawPmSummary = [], projectDetail: rawProjectDetail = [] } = data || {};
 
   const pmSummary    = filterPM === 'all' ? rawPmSummary    : rawPmSummary.filter(r => r.pm_id === filterPM);
-  const projectDetail= filterPM === 'all' ? rawProjectDetail: rawProjectDetail.filter(pd => {
+  const projectDetail= (filterPM === 'all' ? rawProjectDetail : rawProjectDetail.filter(pd => {
     const pr = projects.find(p => p.id === pd.id);
     return pr?.manager_id === filterPM;
+  })).filter(pd => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return pd.name.toLowerCase().includes(q) || (pd.client||'').toLowerCase().includes(q);
   });
 
   const downloadCSV = () => {
@@ -121,6 +126,21 @@ export default function Reports({ projects, profiles = [] }) {
               </select>
             </div>
           )}
+          <div className="form-group" style={{marginBottom:0}}>
+            <label className="form-label">Search</label>
+            <div style={{ position:'relative' }}>
+              <span style={{ position:'absolute', left:8, top:'50%', transform:'translateY(-50%)', color:'var(--text3)', pointerEvents:'none', display:'flex' }}>
+                <Icon name="search" size={13} />
+              </span>
+              <input
+                className="form-control form-control-sm"
+                style={{ paddingLeft:28, minWidth:160 }}
+                placeholder="Project or client…"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+            </div>
+          </div>
           <button className="btn btn-ghost btn-sm" onClick={load}>{loading?<Spinner/>:'↻ Refresh'}</button>
           {data && !loading && (
             <button className="btn btn-outline btn-sm" onClick={downloadCSV}>

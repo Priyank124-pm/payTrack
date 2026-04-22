@@ -30,6 +30,7 @@ app.use('/api/milestones',      require('./routes/milestones'));
 app.use('/api/change-requests', require('./routes/changeRequests'));
 app.use('/api/reports',         require('./routes/reports'));
 app.use('/api/notifications',   require('./routes/notifications'));
+app.use('/api/activity-logs',   require('./routes/activityLogs'));
 
 // ── Health check ───────────────────────────────────────────────
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));

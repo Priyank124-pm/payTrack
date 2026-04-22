@@ -19,7 +19,8 @@ function ageBadge(days) {
 
 export default function LastPayments({ projects, milestones, profiles }) {
   const { isAdmin, effectiveManagerId } = useAuth();
-  const [filterPM, setFilterPM] = useState('all');
+  const [filterPM,    setFilterPM]    = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const pms = profiles.filter(u => u.role === 'project_manager');
 
@@ -27,9 +28,14 @@ export default function LastPayments({ projects, milestones, profiles }) {
     ? projects
     : projects.filter(p => p.manager_id === effectiveManagerId);
 
-  const visProjects = filterPM === 'all'
-    ? myProjects
-    : myProjects.filter(p => p.manager_id === filterPM);
+  const visProjects = myProjects.filter(p => {
+    if (filterPM !== 'all' && p.manager_id !== filterPM) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      if (!p.name.toLowerCase().includes(q) && !p.client.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
 
   const rows = visProjects.map(pr => {
     const allMs     = milestones.filter(m => m.project_id === pr.id);
@@ -63,15 +69,32 @@ export default function LastPayments({ projects, milestones, profiles }) {
             Most recent payment received per project · {withPayment.length} projects paid · {withoutPayment.length} awaiting
           </div>
         </div>
-        {isAdmin && pms.length > 0 && (
+        <div style={{ display:'flex', gap:8, alignItems:'flex-end', flexWrap:'wrap' }}>
+          {isAdmin && pms.length > 0 && (
+            <div className="form-group" style={{ marginBottom:0 }}>
+              <label className="form-label">Filter by PM</label>
+              <select className="form-control form-control-sm" value={filterPM} onChange={e => setFilterPM(e.target.value)}>
+                <option value="all">All PMs</option>
+                {pms.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          )}
           <div className="form-group" style={{ marginBottom:0 }}>
-            <label className="form-label">Filter by PM</label>
-            <select className="form-control form-control-sm" value={filterPM} onChange={e => setFilterPM(e.target.value)}>
-              <option value="all">All PMs</option>
-              {pms.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            <label className="form-label">Search</label>
+            <div style={{ position:'relative' }}>
+              <span style={{ position:'absolute', left:8, top:'50%', transform:'translateY(-50%)', color:'var(--text3)', pointerEvents:'none', display:'flex' }}>
+                <Icon name="search" size={13} />
+              </span>
+              <input
+                className="form-control form-control-sm"
+                style={{ paddingLeft:28, minWidth:160 }}
+                placeholder="Project or client…"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+            </div>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Summary cards */}

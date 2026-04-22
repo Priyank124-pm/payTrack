@@ -83,3 +83,9 @@ export const changeRequestsAPI = {
 export const reportsAPI = {
   monthly: (month, year) => get(`/api/reports/monthly?month=${month}&year=${year}`),
 };
+
+// ── Activity Logs ──────────────────────────────────────────────
+export const logsAPI = {
+  list:  (params = {}) => { const qs = new URLSearchParams(params).toString(); return get(`/api/activity-logs${qs ? '?' + qs : ''}`); },
+  users: ()            => get('/api/activity-logs/users'),
+};
