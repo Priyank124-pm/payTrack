@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check /Users/itechnolabs/Desktop/Priyank/server/services/logger.js)",
+      "Bash(node --check /Users/itechnolabs/Desktop/Priyank/server/routes/activityLogs.js)",
+      "Bash(node --check /Users/itechnolabs/Desktop/Priyank/server/routes/projects.js)",
+      "Bash(node --check /Users/itechnolabs/Desktop/Priyank/server/routes/milestones.js)",
+      "Bash(node --check /Users/itechnolabs/Desktop/Priyank/server/routes/changeRequests.js)",
+      "Bash(mysql -u root -e \"SELECT VERSION\\(\\);\")",
+      "Bash(/usr/local/mysql/bin/mysql --version)",
+      "Bash(/opt/homebrew/bin/mysql --version)",
+      "Bash(brew services *)",
+      "Bash(/usr/local/mysql/bin/mysql -u root -p'' -e \"SELECT 1;\")",
+      "Read(//Users/itechnolabs/**)"
+    ]
+  }
+}

@@ -1,12 +1,33 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { fmt, pct, MONTHS, CURRENT_MONTH, CURRENT_YEAR, EmptyState, StatusBadge, ProgressBar } from '../components/UI';
+import { fmt, pct, MONTHS, CURRENT_MONTH, CURRENT_YEAR, EmptyState, StatusBadge, ProgressBar, Icon } from '../components/UI';
 import { calcNet, COMMISSION_PORTALS, PORTALS } from '../hooks/useData';
 
-export default function Dashboard({ projects, milestones }) {
+export default function Dashboard({ projects, milestones, profiles = [] }) {
   const { user: me, isAdmin, effectiveManagerId } = useAuth();
+  const [filterPM,    setFilterPM]    = useState('all');
+  const [filterCoord, setFilterCoord] = useState('all');
 
-  const myProjects   = isAdmin ? projects : projects.filter(p => p.manager_id === effectiveManagerId);
+  const pms             = profiles.filter(u => u.role === 'project_manager');
+  const allCoordinators = profiles.filter(u => u.role === 'coordinator');
+  // PC dropdown only shows coordinators belonging to the selected PM
+  const visCoordinators = filterPM === 'all'
+    ? allCoordinators
+    : allCoordinators.filter(c => c.manager_id === filterPM);
+
+  const handlePMChange = (pmId) => {
+    setFilterPM(pmId);
+    setFilterCoord('all'); // reset PC when PM changes
+  };
+
+  const baseProjects = isAdmin ? projects : projects.filter(p => p.manager_id === effectiveManagerId);
+  const myProjects   = isAdmin
+    ? baseProjects.filter(p => {
+        if (filterPM    !== 'all' && p.manager_id    !== filterPM)    return false;
+        if (filterCoord !== 'all' && p.coordinator_id !== filterCoord) return false;
+        return true;
+      })
+    : baseProjects;
   const myMilestones = milestones.filter(m => myProjects.some(p => p.id === m.project_id));
 
   const totalNetTarget  = myProjects.reduce((s,p) => s + calcNet(parseFloat(p.target_payment)||0, p.portal), 0);
@@ -37,9 +58,51 @@ export default function Dashboard({ projects, milestones }) {
 
   return (
     <div>
-      <div style={{ marginBottom:18 }}>
-        <div className="page-title">Welcome back, <span style={{ color:'var(--primary)' }}>{me?.name}</span> 👋</div>
-        <div className="text-muted" style={{ marginTop:3 }}>{new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
+      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:18, flexWrap:'wrap', gap:12 }}>
+        <div>
+          <div className="page-title">Welcome back, <span style={{ color:'var(--primary)' }}>{me?.name}</span> 👋</div>
+          <div className="text-muted" style={{ marginTop:3 }}>{new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
+        </div>
+
+        {isAdmin && pms.length > 0 && (
+          <div style={{ display:'flex', gap:8, alignItems:'flex-end', flexWrap:'wrap' }}>
+            <div className="form-group" style={{ marginBottom:0 }}>
+              <label className="form-label">PM</label>
+              <select
+                className="form-control form-control-sm"
+                value={filterPM}
+                onChange={e => handlePMChange(e.target.value)}
+              >
+                <option value="all">All PMs</option>
+                {pms.map(pm => <option key={pm.id} value={pm.id}>{pm.name}</option>)}
+              </select>
+            </div>
+
+            {visCoordinators.length > 0 && (
+              <div className="form-group" style={{ marginBottom:0 }}>
+                <label className="form-label">PC</label>
+                <select
+                  className="form-control form-control-sm"
+                  value={filterCoord}
+                  onChange={e => setFilterCoord(e.target.value)}
+                >
+                  <option value="all">{filterPM === 'all' ? 'All PCs' : 'All PCs for this PM'}</option>
+                  {visCoordinators.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            {(filterPM !== 'all' || filterCoord !== 'all') && (
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => { setFilterPM('all'); setFilterCoord('all'); }}
+                style={{ alignSelf:'flex-end' }}
+              >
+                <Icon name="close" size={12} />Clear
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="stats-grid">

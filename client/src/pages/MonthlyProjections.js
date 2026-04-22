@@ -104,10 +104,12 @@ function MilestoneFields({ vals, onChange, portal, onSave, onCancel, saving, isE
 
 export default function MonthlyProjections({ projects, milestones, profiles, onAdd, onUpdate, onDelete }) {
   const { user: me, isAdmin, effectiveManagerId } = useAuth();
-  const [month,    setMonth]    = useState(CURRENT_MONTH);
-  const [year,     setYear]     = useState(CURRENT_YEAR);
-  const [filterPM, setFilterPM] = useState('all');
-  const [editId,   setEditId]   = useState(null);
+  const [month,       setMonth]       = useState(CURRENT_MONTH);
+  const [year,        setYear]        = useState(CURRENT_YEAR);
+  const [filterPM,    setFilterPM]    = useState('all');
+  const [filterCoord, setFilterCoord] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [editId,      setEditId]      = useState(null);
   const [editBuf,  setEditBuf]  = useState({});
   const [addingTo, setAddingTo] = useState(null);
   const [newM,     setNewM]     = useState({});
@@ -115,12 +117,18 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
   const [error,    setError]    = useState('');
 
   const pms            = profiles.filter(u => u.role === 'project_manager');
+  const coordinators   = profiles.filter(u => u.role === 'coordinator');
   const isCurrentMonth = month === CURRENT_MONTH && year === CURRENT_YEAR;
 
   const visProjects = projects.filter(pr => {
     if (!isAdmin && pr.manager_id !== effectiveManagerId) return false;
     if (filterPM !== 'all' && pr.manager_id !== filterPM) return false;
+    if (filterCoord !== 'all' && pr.coordinator_id !== filterCoord) return false;
     if (isCurrentMonth && pr.all_payments_received) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      if (!pr.name.toLowerCase().includes(q) && !pr.client.toLowerCase().includes(q)) return false;
+    }
     return true;
   });
 
@@ -195,6 +203,30 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
               </select>
             </div>
           )}
+          {isAdmin && coordinators.length > 0 && (
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">PC</label>
+              <select className="form-control form-control-sm" value={filterCoord} onChange={e => setFilterCoord(e.target.value)}>
+                <option value="all">All PCs</option>
+                {coordinators.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+          )}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label">Search</label>
+            <div style={{ position: 'relative' }}>
+              <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)', pointerEvents: 'none', display: 'flex' }}>
+                <Icon name="search" size={13} />
+              </span>
+              <input
+                className="form-control form-control-sm"
+                style={{ paddingLeft: 28, minWidth: 160 }}
+                placeholder="Project or client…"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+            </div>
+          </div>
         </div>
       </div>
 

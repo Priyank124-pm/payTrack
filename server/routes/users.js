@@ -3,6 +3,7 @@ const bcrypt   = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
 const pool     = require('../db/pool');
 const { authenticate, isAdmin, isSuperAdmin } = require('../middleware/auth');
+const { logActivity } = require('../services/logger');
 
 const router = express.Router();
 router.use(authenticate);
@@ -75,6 +76,7 @@ router.post('/',
         'SELECT id, name, email, role, manager_id, created_at FROM users WHERE email = ?',
         [email]
       );
+      await logActivity({ user: req.user, action: 'create', entity: 'user', entityId: rows[0].id, detail: `Created user '${name}' (${role})` });
       res.status(201).json(rows[0]);
     } catch (err) {
       console.error(err);
@@ -112,6 +114,7 @@ router.patch('/:id',
         [req.params.id]
       );
       if (!rows.length) return res.status(404).json({ error: 'User not found' });
+      await logActivity({ user: req.user, action: 'update', entity: 'user', entityId: req.params.id, detail: `Updated user '${rows[0].name}'` });
       res.json(rows[0]);
     } catch (err) {
       console.error(err);
@@ -126,8 +129,10 @@ router.delete('/:id', isSuperAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Cannot delete yourself' });
   }
   try {
+    const [target] = await pool.query('SELECT name, role FROM users WHERE id = ?', [req.params.id]);
     const [result] = await pool.query('DELETE FROM users WHERE id = ?', [req.params.id]);
     if (!result.affectedRows) return res.status(404).json({ error: 'User not found' });
+    await logActivity({ user: req.user, action: 'delete', entity: 'user', entityId: req.params.id, detail: `Deleted user '${target[0]?.name}' (${target[0]?.role})` });
     res.json({ message: 'User deleted' });
   } catch (err) {
     console.error(err);

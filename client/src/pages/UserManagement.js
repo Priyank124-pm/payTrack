@@ -4,10 +4,11 @@ import { useAuth } from '../context/AuthContext';
 
 export default function UserManagement({ profiles, onAdd, onUpdate, onDelete }) {
   const { user: me, isSuperAdmin } = useAuth();
-  const [modal,  setModal]  = useState(null);
-  const [form,   setForm]   = useState({});
-  const [error,  setError]  = useState('');
-  const [saving, setSaving] = useState(false);
+  const [modal,       setModal]       = useState(null);
+  const [form,        setForm]        = useState({});
+  const [error,       setError]       = useState('');
+  const [saving,      setSaving]      = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const pms = profiles.filter(u => u.role === 'project_manager');
   const setF = (k, v) => setForm(p => ({ ...p, [k]: v }));
@@ -45,11 +46,32 @@ export default function UserManagement({ profiles, onAdd, onUpdate, onDelete }) 
           <div className="page-title">User Management</div>
           <div className="text-muted" style={{ marginTop:3 }}>{profiles.length} total users</div>
         </div>
-        <button className="btn btn-primary" onClick={openAdd}><Icon name="add" />Add User</button>
+        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+          <div style={{ position:'relative' }}>
+            <span style={{ position:'absolute', left:8, top:'50%', transform:'translateY(-50%)', color:'var(--text3)', pointerEvents:'none', display:'flex' }}>
+              <Icon name="search" size={13} />
+            </span>
+            <input
+              className="form-control form-control-sm"
+              style={{ paddingLeft:28, minWidth:180 }}
+              placeholder="Search by name or email…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <button className="btn btn-primary" onClick={openAdd}><Icon name="add" />Add User</button>
+        </div>
       </div>
 
       {groups.map(({ role, label }) => {
-        const list = profiles.filter(u => u.role === role);
+        const list = profiles.filter(u => {
+          if (u.role !== role) return false;
+          if (searchQuery) {
+            const q = searchQuery.toLowerCase();
+            return u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
+          }
+          return true;
+        });
         return (
           <div className="card" key={role} style={{ marginBottom:14 }}>
             <div className="card-header">

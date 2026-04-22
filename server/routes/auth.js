@@ -4,6 +4,7 @@ const jwt      = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const pool     = require('../db/pool');
 const { authenticate } = require('../middleware/auth');
+const { logActivity } = require('../services/logger');
 
 const router = express.Router();
 
@@ -38,6 +39,7 @@ router.post('/login',
 
       delete user.password;
       const token = signToken(user);
+      await logActivity({ user, action: 'login', entity: 'session', detail: 'Signed in' });
       res.json({ token, user });
     } catch (err) {
       console.error(err);
@@ -72,6 +74,7 @@ router.post('/change-password',
 
       const hashed = await bcrypt.hash(newPassword, 10);
       await pool.query('UPDATE users SET password = ? WHERE id = ?', [hashed, req.user.id]);
+      await logActivity({ user: req.user, action: 'change_password', entity: 'session', detail: 'Changed password' });
       res.json({ message: 'Password changed successfully' });
     } catch (err) {
       console.error(err);

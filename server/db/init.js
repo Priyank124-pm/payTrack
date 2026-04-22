@@ -53,6 +53,22 @@ CREATE TABLE IF NOT EXISTS milestones (
   INDEX idx_milestones_month_year (month, year)
 );
 
+-- Activity Logs
+CREATE TABLE IF NOT EXISTS activity_logs (
+  id         CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+  user_id    CHAR(36)     DEFAULT NULL,
+  user_name  VARCHAR(120) NOT NULL,
+  user_role  VARCHAR(50)  NOT NULL,
+  action     VARCHAR(60)  NOT NULL,
+  entity     VARCHAR(60)  NOT NULL,
+  entity_id  CHAR(36)     DEFAULT NULL,
+  detail     TEXT         DEFAULT NULL,
+  created_at DATETIME     DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_logs_user    (user_id),
+  INDEX idx_logs_created (created_at),
+  INDEX idx_logs_entity  (entity)
+);
+
 -- Change Requests
 CREATE TABLE IF NOT EXISTS change_requests (
   id          CHAR(36)      PRIMARY KEY DEFAULT (UUID()),
@@ -93,6 +109,22 @@ async function initDB() {
     await migrate(`ALTER TABLE projects ADD COLUMN coordinator_id CHAR(36) DEFAULT NULL`);
     await migrate(`ALTER TABLE projects ADD CONSTRAINT fk_projects_coordinator FOREIGN KEY (coordinator_id) REFERENCES users(id) ON DELETE SET NULL`);
     await migrate(`ALTER TABLE projects ADD COLUMN archived TINYINT(1) NOT NULL DEFAULT 0`);
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS activity_logs (
+        id         CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+        user_id    CHAR(36)     DEFAULT NULL,
+        user_name  VARCHAR(120) NOT NULL,
+        user_role  VARCHAR(50)  NOT NULL,
+        action     VARCHAR(60)  NOT NULL,
+        entity     VARCHAR(60)  NOT NULL,
+        entity_id  CHAR(36)     DEFAULT NULL,
+        detail     TEXT         DEFAULT NULL,
+        created_at DATETIME     DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_logs_user    (user_id),
+        INDEX idx_logs_created (created_at),
+        INDEX idx_logs_entity  (entity)
+      )
+    `);
 
     console.log('✅  Database schema initialised');
   } catch (err) {

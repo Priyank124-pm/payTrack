@@ -2,6 +2,7 @@ const express = require('express');
 const { body, query, validationResult } = require('express-validator');
 const pool    = require('../db/pool');
 const { authenticate, isAdmin, isSuperAdmin, getEffectiveManagerId } = require('../middleware/auth');
+const { logActivity } = require('../services/logger');
 
 const router = express.Router();
 router.use(authenticate);
@@ -109,6 +110,7 @@ router.post('/',
          WHERE p.name = ? AND p.client = ? ORDER BY p.created_at DESC LIMIT 1`,
         [name, client]
       );
+      await logActivity({ user: req.user, action: 'create', entity: 'project', entityId: rows[0].id, detail: `Created project '${name}' for client '${client}'` });
       res.status(201).json(rows[0]);
     } catch (err) {
       console.error(err);
@@ -186,6 +188,7 @@ router.post('/bulk-import', isAdmin,
       }
     }
 
+    await logActivity({ user: req.user, action: 'bulk_import', entity: 'project', detail: `Bulk imported ${created.length} project(s)` });
     res.json({ created: created.length, errors: importErrors });
   }
 );
@@ -198,6 +201,7 @@ router.post('/bulk-delete', isSuperAdmin, async (req, res) => {
   try {
     const placeholders = ids.map(() => '?').join(',');
     const [result] = await pool.query(`DELETE FROM projects WHERE id IN (${placeholders})`, ids);
+    await logActivity({ user: req.user, action: 'bulk_delete', entity: 'project', detail: `Bulk deleted ${result.affectedRows} project(s)` });
     res.json({ deleted: result.affectedRows });
   } catch (err) {
     console.error(err);
@@ -208,8 +212,10 @@ router.post('/bulk-delete', isSuperAdmin, async (req, res) => {
 // ── PATCH /api/projects/:id/archive ───────────────────────────
 router.patch('/:id/archive', isAdmin, async (req, res) => {
   try {
-    const [r] = await pool.query('UPDATE projects SET archived = 1 WHERE id = ?', [req.params.id]);
+    const [pr] = await pool.query('SELECT name FROM projects WHERE id = ?', [req.params.id]);
+    const [r]  = await pool.query('UPDATE projects SET archived = 1 WHERE id = ?', [req.params.id]);
     if (!r.affectedRows) return res.status(404).json({ error: 'Project not found' });
+    await logActivity({ user: req.user, action: 'archive', entity: 'project', entityId: req.params.id, detail: `Archived project '${pr[0]?.name}'` });
     res.json({ message: 'Project archived' });
   } catch (err) {
     console.error(err);
@@ -220,8 +226,10 @@ router.patch('/:id/archive', isAdmin, async (req, res) => {
 // ── PATCH /api/projects/:id/unarchive ─────────────────────────
 router.patch('/:id/unarchive', isAdmin, async (req, res) => {
   try {
-    const [r] = await pool.query('UPDATE projects SET archived = 0 WHERE id = ?', [req.params.id]);
+    const [pr] = await pool.query('SELECT name FROM projects WHERE id = ?', [req.params.id]);
+    const [r]  = await pool.query('UPDATE projects SET archived = 0 WHERE id = ?', [req.params.id]);
     if (!r.affectedRows) return res.status(404).json({ error: 'Project not found' });
+    await logActivity({ user: req.user, action: 'unarchive', entity: 'project', entityId: req.params.id, detail: `Restored project '${pr[0]?.name}' from archive` });
     res.json({ message: 'Project restored' });
   } catch (err) {
     console.error(err);
@@ -258,6 +266,7 @@ router.patch('/:id', async (req, res) => {
        WHERE p.id = ? GROUP BY p.id`,
       [req.params.id]
     );
+    await logActivity({ user: req.user, action: 'update', entity: 'project', entityId: req.params.id, detail: `Updated project '${rows[0].name}'` });
     res.json(rows[0]);
   } catch (err) {
     console.error(err);
@@ -280,6 +289,7 @@ router.patch('/:id/mark-received', async (req, res) => {
       `UPDATE projects SET all_payments_received = 1, status = 'completed' WHERE id = ?`,
       [req.params.id]
     );
+    await logActivity({ user: req.user, action: 'mark_received', entity: 'project', entityId: req.params.id, detail: `Marked all payments received for '${existing[0].name}'` });
     res.json({ message: 'Project marked as all payments received' });
   } catch (err) {
     console.error(err);
@@ -290,8 +300,10 @@ router.patch('/:id/mark-received', async (req, res) => {
 // ── DELETE /api/projects/:id ───────────────────────────────────
 router.delete('/:id', isAdmin, async (req, res) => {
   try {
+    const [pr]     = await pool.query('SELECT name FROM projects WHERE id = ?', [req.params.id]);
     const [result] = await pool.query('DELETE FROM projects WHERE id = ?', [req.params.id]);
     if (!result.affectedRows) return res.status(404).json({ error: 'Project not found' });
+    await logActivity({ user: req.user, action: 'delete', entity: 'project', entityId: req.params.id, detail: `Deleted project '${pr[0]?.name}'` });
     res.json({ message: 'Project deleted' });
   } catch (err) {
     console.error(err);

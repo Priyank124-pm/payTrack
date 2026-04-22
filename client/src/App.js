@@ -8,6 +8,7 @@ import Projects from './pages/Projects';
 import MonthlyProjections from './pages/MonthlyProjections';
 import Reports from './pages/Reports';
 import LastPayments from './pages/LastPayments';
+import ActivityLogs from './pages/ActivityLogs';
 import { Icon, Modal, Spinner, avatarColor } from './components/UI';
 import { authAPI } from './api';
 import './styles/global.css';
@@ -128,19 +129,21 @@ function AppShell() {
     { id: 'projections',  icon: 'projection', label: 'Monthly Projections' },
     { id: 'lastpayments', icon: 'clock',      label: 'Last Payments' },
     { id: 'reports',      icon: 'report',     label: 'Reports' },
+    ...(isAdmin ? [{ id: 'activitylogs', icon: 'log', label: 'Activity Logs' }] : []),
   ];
 
   const titles = {
     dashboard: 'Dashboard', users: 'User Management',
     projects: 'Projects', projections: 'Monthly Projections',
     lastpayments: 'Last Payments', reports: 'Reports',
+    activitylogs: 'Activity Logs',
   };
 
   const pendingCRs = crs.filter(c => c.status === 'pending').length;
 
   const renderPage = () => {
     switch (page) {
-      case 'dashboard':   return <Dashboard projects={projects} milestones={milestones} />;
+      case 'dashboard':   return <Dashboard projects={projects} milestones={milestones} profiles={profiles} />;
       case 'users':       return isAdmin ? <UserManagement profiles={profiles} onAdd={createProfile} onUpdate={updateProfile} onDelete={deleteProfile} /> : null;
       case 'projects':    return (
         <Projects
@@ -160,6 +163,7 @@ function AppShell() {
       );
       case 'lastpayments':return <LastPayments projects={projects} milestones={milestones} profiles={profiles} />;
       case 'reports':     return <Reports projects={projects} profiles={profiles} />;
+      case 'activitylogs': return isAdmin ? <ActivityLogs /> : null;
       default:            return null;
     }
   };
