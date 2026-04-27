@@ -104,6 +104,7 @@ function MilestoneFields({ vals, onChange, portal, onSave, onCancel, saving, isE
 
 export default function MonthlyProjections({ projects, milestones, profiles, onAdd, onUpdate, onDelete }) {
   const { user: me, isAdmin, effectiveManagerId } = useAuth();
+  const [activeTab,   setActiveTab]   = useState('projections');
   const [month,       setMonth]       = useState(CURRENT_MONTH);
   const [year,        setYear]        = useState(CURRENT_YEAR);
   const [filterPM,    setFilterPM]    = useState('all');
@@ -142,6 +143,23 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
   const gNet      = allRows.reduce((s, m) => { const pr = projects.find(p => p.id === m.project_id); return s + calcNet(parseFloat(m.amount) || 0, pr?.portal); }, 0);
   const gAchieved = allRows.reduce((s, m) => { const pr = projects.find(p => p.id === m.project_id); return s + calcNet(parseFloat(m.achieved) || 0, pr?.portal); }, 0);
 
+  // ── Pending Payments tab data ───────────────────────────────────
+  const myProjectIds = new Set(visProjects.map(p => p.id).concat(
+    projects.filter(pr => isAdmin || pr.manager_id === effectiveManagerId).map(p => p.id)
+  ));
+  const pendingMs = milestones.filter(m =>
+    myProjectIds.has(m.project_id) && m.status !== 'Paid'
+  );
+  // Group pending milestones by year+month, newest first
+  const pendingByMonth = Object.values(
+    pendingMs.reduce((acc, m) => {
+      const key = `${m.year}-${String(m.month).padStart(2,'0')}`;
+      if (!acc[key]) acc[key] = { year: m.year, month: m.month, key, items: [] };
+      acc[key].items.push(m);
+      return acc;
+    }, {})
+  ).sort((a, b) => b.year !== a.year ? b.year - a.year : b.month - a.month);
+
   const setB       = (k, v) => setEditBuf(p => ({ ...p, [k]: v }));
   const setN       = (k, v) => setNewM(p => ({ ...p, [k]: v }));
   const startEdit  = m => { setEditId(m.id); setEditBuf({ ...m }); setError(''); };
@@ -174,6 +192,29 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
 
   return (
     <div>
+      {/* ── Tabs ─────────────────────────────────────────── */}
+      <div style={{ display:'flex', gap:4, marginBottom:18, borderBottom:'2px solid var(--border1)', paddingBottom:0 }}>
+        {[
+          { id:'projections', label:'Monthly Projections', icon:'📅' },
+          { id:'pending',     label:`Pending Payments${pendingMs.length ? ` (${pendingMs.length})` : ''}`, icon:'⏳' },
+        ].map(t => (
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            style={{
+              background:'none', border:'none', padding:'8px 16px', cursor:'pointer',
+              fontWeight: activeTab === t.id ? 700 : 500,
+              fontSize:13, color: activeTab === t.id ? 'var(--primary)' : 'var(--text3)',
+              borderBottom: activeTab === t.id ? '2px solid var(--primary)' : '2px solid transparent',
+              marginBottom:-2, transition:'all .15s',
+            }}
+          >
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'projections' && <div>
       <div className="flex flex-center flex-between mb-4" style={{ flexWrap: 'wrap', gap: 10 }}>
         <div>
           <div className="page-title">Monthly Projections</div>
@@ -230,10 +271,37 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
         </div>
       </div>
 
+      {/* ── Grand Total — sticky bar just below the topbar ─────── */}
+      {visProjects.length > 0 && (
+        <div style={{ position: 'sticky', top: 56, zIndex: 40, marginBottom: 14 }}>
+          <div className="card card-p" style={{ background: 'var(--primary-lt)', border: '1.5px solid var(--primary-md)', boxShadow: '0 4px 12px rgba(79,70,229,.13)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--primary-dk)' }}>
+                Grand Total — {MONTHS[month - 1]?.label} {year}
+              </div>
+              <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                {[
+                  ['Commission',   fmt(gGross - gNet),            'var(--warning)'],
+                  ['Net Target',   fmt(gNet),                     'var(--text2)'],
+                  ['Net Achieved', fmt(gAchieved),                'var(--success)'],
+                  ['Rate',         pct(gAchieved, gNet) + '%',    'var(--primary)'],
+                ].map(([l, v, c]) => (
+                  <div key={l} style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: .8, marginBottom: 2 }}>{l}</div>
+                    <div className="mono" style={{ fontSize: 19, fontWeight: 800, color: c }}>{v}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {error && <div className="alert alert-error" style={{ marginBottom: 10 }}><Icon name="warning" size={13} />{error}</div>}
       {visProjects.length === 0 && <div className="card card-p"><EmptyState icon="📅" message="No active projects for this period" /></div>}
 
       {projRows.map(pr => {
+
         const pmP       = pms.find(u => u.id === pr.manager_id);
         const hasC      = COMMISSION_PORTALS.includes(pr.portal);
         const gT        = pr.rows.reduce((s, m) => s + (parseFloat(m.amount) || 0), 0);
@@ -379,28 +447,121 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
         );
       })}
 
-      {allRows.length > 0 && (
-        <div className="card card-p" style={{ background: 'var(--primary-lt)', border: '1.5px solid var(--primary-md)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
-            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--primary-dk)' }}>
-              Grand Total — {MONTHS[month - 1]?.label} {year}
-            </div>
-            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-              {[
-                ['Commission',  fmt(gGross - gNet), 'var(--warning)'],
-                ['Net Target',  fmt(gNet),           'var(--text2)'],
-                ['Net Achieved',fmt(gAchieved),       'var(--success)'],
-                ['Rate',        pct(gAchieved, gNet) + '%', 'var(--primary)'],
-              ].map(([l, v, c]) => (
-                <div key={l} style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: .8, marginBottom: 2 }}>{l}</div>
-                  <div className="mono" style={{ fontSize: 19, fontWeight: 800, color: c }}>{v}</div>
-                </div>
-              ))}
+      </div>} {/* end projections tab */}
+
+      {/* ── Pending Payments Tab ─────────────────────────────────── */}
+      {activeTab === 'pending' && (
+        <div>
+          <div style={{ marginBottom:16 }}>
+            <div className="page-title" style={{ fontSize:17 }}>Pending Payments</div>
+            <div className="text-muted" style={{ marginTop:3 }}>
+              {pendingMs.length} milestone{pendingMs.length !== 1 ? 's' : ''} unpaid across all months
             </div>
           </div>
+
+          {error && <div className="alert alert-error" style={{ marginBottom:10 }}><Icon name="warning" size={13} />{error}</div>}
+
+          {pendingByMonth.length === 0 && (
+            <div className="card card-p">
+              <EmptyState icon="✅" message="No pending payments — all milestones are paid!" />
+            </div>
+          )}
+
+          {pendingByMonth.map(group => {
+            const groupTarget   = group.items.reduce((s,m) => { const pr = projects.find(p=>p.id===m.project_id); return s + calcNet(parseFloat(m.amount)||0, pr?.portal); }, 0);
+            const groupAchieved = group.items.reduce((s,m) => { const pr = projects.find(p=>p.id===m.project_id); return s + calcNet(parseFloat(m.achieved)||0, pr?.portal); }, 0);
+            const groupPending  = groupTarget - groupAchieved;
+
+            return (
+              <div key={group.key} className="card" style={{ marginBottom:14 }}>
+                {/* Month header */}
+                <div className="card-header" style={{ background:'var(--bg2)' }}>
+                  <div style={{ fontWeight:700, fontSize:15 }}>
+                    {MONTHS[group.month-1]?.label} {group.year}
+                    <span className="badge badge-yellow" style={{ marginLeft:10, fontSize:11 }}>
+                      {group.items.length} pending
+                    </span>
+                  </div>
+                  <div style={{ display:'flex', gap:20, flexWrap:'wrap' }}>
+                    {[
+                      ['Target',   fmt(groupTarget),   'var(--text2)'],
+                      ['Received', fmt(groupAchieved), 'var(--success)'],
+                      ['Pending',  fmt(groupPending),  'var(--danger)'],
+                    ].map(([l,v,c]) => (
+                      <div key={l} style={{ textAlign:'right' }}>
+                        <div style={{ fontSize:10, color:'var(--text3)', textTransform:'uppercase', letterSpacing:.7, marginBottom:1 }}>{l}</div>
+                        <div className="mono" style={{ fontSize:14, fontWeight:700, color:c }}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Milestone rows */}
+                <div style={{ padding:'0 18px 10px' }}>
+                  {group.items.map(m => {
+                    const pr     = projects.find(p => p.id === m.project_id);
+                    const hasC   = COMMISSION_PORTALS.includes(pr?.portal);
+                    const netAmt = calcNet(parseFloat(m.amount)||0, pr?.portal);
+                    const netAch = calcNet(parseFloat(m.achieved)||0, pr?.portal);
+                    const pmUser = profiles.find(u => u.id === pr?.manager_id);
+
+                    return (
+                      <div key={m.id} className={`m-row${editId === m.id ? ' editing' : ''}`}>
+                        {editId === m.id ? (
+                          <MilestoneFields
+                            vals={editBuf}
+                            onChange={setB}
+                            portal={pr?.portal}
+                            onSave={saveEdit}
+                            onCancel={cancelEdit}
+                            saving={saving}
+                            isEdit
+                          />
+                        ) : (
+                          <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10, flexWrap:'wrap' }}>
+                            <div style={{ display:'flex', gap:16, flex:1, flexWrap:'wrap' }}>
+                              <div style={{ minWidth:140 }}>
+                                <div style={{ fontWeight:600, fontSize:13 }}>{m.label}</div>
+                                <div style={{ fontSize:11, color:'var(--text3)', marginTop:2 }}>
+                                  {pr?.name}
+                                  {isAdmin && pmUser && <span style={{ marginLeft:6 }}>· {pmUser.name}</span>}
+                                </div>
+                                {m.target_date && (
+                                  <div className="mono" style={{ fontSize:11, color:'var(--text4)', marginTop:1 }}>{m.target_date}</div>
+                                )}
+                              </div>
+                              <div>
+                                <div className="form-label">Target</div>
+                                <div className="mono" style={{ fontSize:13 }}>{fmt(netAmt)}</div>
+                                {hasC && <div style={{ fontSize:10, color:'var(--text3)' }}>-20% applied</div>}
+                              </div>
+                              <div>
+                                <div className="form-label">Received</div>
+                                <div className="mono" style={{ fontSize:13, color:'var(--success)', fontWeight:600 }}>{fmt(netAch)}</div>
+                              </div>
+                              <div>
+                                <div className="form-label">Remaining</div>
+                                <div className="mono" style={{ fontSize:13, color: netAmt > netAch ? 'var(--danger)' : 'var(--success)', fontWeight:600 }}>
+                                  {fmt(netAmt - netAch)}
+                                </div>
+                              </div>
+                              <div><StatusBadge status={m.status} /></div>
+                            </div>
+                            <button className="btn btn-sm btn-ghost btn-icon" onClick={() => startEdit(m)}>
+                              <Icon name="edit" size={12} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
+
     </div>
   );
 }

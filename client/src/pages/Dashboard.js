@@ -56,8 +56,45 @@ export default function Dashboard({ projects, milestones, profiles = [] }) {
     .slice(0,7)
     .map(m => ({ ...m, project: myProjects.find(p=>p.id===m.project_id) }));
 
+  // 24-hour due alerts — milestones with a target_date within the next 24 hours that aren't fully paid
+  const now24 = new Date();
+  now24.setHours(23, 59, 59, 999);
+  const alerts = milestones.filter(m => {
+    if (!m.target_date) return false;
+    if (m.status === 'Paid') return false;
+    const due = new Date(m.target_date);
+    const today = new Date(); today.setHours(0,0,0,0);
+    return due >= today && due <= now24;
+  }).map(m => ({ ...m, project: projects.find(p => p.id === m.project_id) }));
+
   return (
     <div>
+      {/* ── 24-hour due alerts ───────────────────────────── */}
+      {alerts.length > 0 && (
+        <div style={{ background:'#FFF7ED', border:'1.5px solid #FB923C', borderRadius:10, padding:'12px 16px', marginBottom:18 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+            <span style={{ fontSize:16 }}>⏰</span>
+            <span style={{ fontWeight:700, fontSize:14, color:'#C2410C' }}>
+              {alerts.length} payment{alerts.length > 1 ? 's' : ''} due today!
+            </span>
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {alerts.map(a => (
+              <div key={a.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', background:'white', borderRadius:7, padding:'8px 12px', border:'1px solid #FED7AA' }}>
+                <div>
+                  <span style={{ fontWeight:600, fontSize:13 }}>{a.label}</span>
+                  <span style={{ color:'var(--text3)', fontSize:12, marginLeft:8 }}>{a.project?.name}</span>
+                </div>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <span className="mono" style={{ fontSize:12, fontWeight:700, color:'#C2410C' }}>{fmt(parseFloat(a.amount)||0)}</span>
+                  <StatusBadge status={a.status} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:18, flexWrap:'wrap', gap:12 }}>
         <div>
           <div className="page-title">Welcome back, <span style={{ color:'var(--primary)' }}>{me?.name}</span> 👋</div>

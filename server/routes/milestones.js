@@ -122,7 +122,14 @@ router.patch('/:id', async (req, res) => {
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
         fields.push(`${key} = ?`);
-        values.push(['amount','achieved'].includes(key) ? parseFloat(req.body[key]) : req.body[key]);
+        if (['amount','achieved'].includes(key)) {
+          values.push(parseFloat(req.body[key]));
+        } else if (key === 'target_date') {
+          // Convert empty string → null so MySQL strict mode doesn't reject it
+          values.push(req.body[key] || null);
+        } else {
+          values.push(req.body[key]);
+        }
       }
     }
     if (!fields.length) return res.status(400).json({ error: 'Nothing to update' });
@@ -134,6 +141,7 @@ router.patch('/:id', async (req, res) => {
        WHERE m.id = ?`,
       [req.params.id]
     );
+    if (!rows.length) return res.status(404).json({ error: 'Milestone not found after update' });
     await logActivity({ user: req.user, action: 'update', entity: 'milestone', entityId: req.params.id, detail: `Updated milestone '${rows[0].label}' in project '${rows[0].project_name}'` });
     res.json(rows[0]);
   } catch (err) {
