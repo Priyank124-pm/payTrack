@@ -230,6 +230,32 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
         </div>
       </div>
 
+      {/* ── Grand Total — sticky bar just below the topbar ─────── */}
+      {visProjects.length > 0 && (
+        <div style={{ position: 'sticky', top: 56, zIndex: 40, marginBottom: 14 }}>
+          <div className="card card-p" style={{ background: 'var(--primary-lt)', border: '1.5px solid var(--primary-md)', boxShadow: '0 4px 12px rgba(79,70,229,.13)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--primary-dk)' }}>
+                Grand Total — {MONTHS[month - 1]?.label} {year}
+              </div>
+              <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                {[
+                  ['Commission',   fmt(gGross - gNet),            'var(--warning)'],
+                  ['Net Target',   fmt(gNet),                     'var(--text2)'],
+                  ['Net Achieved', fmt(gAchieved),                'var(--success)'],
+                  ['Rate',         pct(gAchieved, gNet) + '%',    'var(--primary)'],
+                ].map(([l, v, c]) => (
+                  <div key={l} style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: .8, marginBottom: 2 }}>{l}</div>
+                    <div className="mono" style={{ fontSize: 19, fontWeight: 800, color: c }}>{v}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {error && <div className="alert alert-error" style={{ marginBottom: 10 }}><Icon name="warning" size={13} />{error}</div>}
       {visProjects.length === 0 && <div className="card card-p"><EmptyState icon="📅" message="No active projects for this period" /></div>}
 
@@ -379,28 +405,6 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
         );
       })}
 
-      {allRows.length > 0 && (
-        <div className="card card-p" style={{ background: 'var(--primary-lt)', border: '1.5px solid var(--primary-md)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
-            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--primary-dk)' }}>
-              Grand Total — {MONTHS[month - 1]?.label} {year}
-            </div>
-            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-              {[
-                ['Commission',  fmt(gGross - gNet), 'var(--warning)'],
-                ['Net Target',  fmt(gNet),           'var(--text2)'],
-                ['Net Achieved',fmt(gAchieved),       'var(--success)'],
-                ['Rate',        pct(gAchieved, gNet) + '%', 'var(--primary)'],
-              ].map(([l, v, c]) => (
-                <div key={l} style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: .8, marginBottom: 2 }}>{l}</div>
-                  <div className="mono" style={{ fontSize: 19, fontWeight: 800, color: c }}>{v}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
