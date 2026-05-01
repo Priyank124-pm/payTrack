@@ -9,6 +9,7 @@ import MonthlyProjections from './pages/MonthlyProjections';
 import Reports from './pages/Reports';
 import LastPayments from './pages/LastPayments';
 import ActivityLogs from './pages/ActivityLogs';
+import Tasks from './pages/Tasks';
 import { Icon, Modal, Spinner, avatarColor } from './components/UI';
 import { authAPI } from './api';
 import './styles/global.css';
@@ -129,6 +130,7 @@ function AppShell() {
     { id: 'projections',  icon: 'projection', label: 'Monthly Projections' },
     { id: 'lastpayments', icon: 'clock',      label: 'Last Payments' },
     { id: 'reports',      icon: 'report',     label: 'Reports' },
+    { id: 'tasks',        icon: 'check',      label: 'Tasks' },
     ...(isAdmin ? [{ id: 'activitylogs', icon: 'log', label: 'Activity Logs' }] : []),
   ];
 
@@ -136,7 +138,7 @@ function AppShell() {
     dashboard: 'Dashboard', users: 'User Management',
     projects: 'Projects', projections: 'Monthly Projections',
     lastpayments: 'Last Payments', reports: 'Reports',
-    activitylogs: 'Activity Logs',
+    tasks: 'Tasks', activitylogs: 'Activity Logs',
   };
 
   const pendingCRs = crs.filter(c => c.status === 'pending').length;
@@ -163,6 +165,7 @@ function AppShell() {
       );
       case 'lastpayments':return <LastPayments projects={projects} milestones={milestones} profiles={profiles} />;
       case 'reports':     return <Reports projects={projects} profiles={profiles} />;
+      case 'tasks':        return <Tasks profiles={profiles} />;
       case 'activitylogs': return isAdmin ? <ActivityLogs /> : null;
       default:            return null;
     }

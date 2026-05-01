@@ -102,6 +102,106 @@ function MilestoneFields({ vals, onChange, portal, onSave, onCancel, saving, isE
   );
 }
 
+// Read-only lookup for PMs to see any project's monthly projection summary
+function LookupSection({ projects, milestones, month, year, profiles }) {
+  const [query, setQuery] = useState('');
+  const [picked, setPicked] = useState(null);
+
+  const matches = query.trim().length > 0
+    ? projects.filter(p => p.name.toLowerCase().includes(query.toLowerCase()) || p.client.toLowerCase().includes(query.toLowerCase())).slice(0, 8)
+    : [];
+
+  const pickedRows = picked
+    ? milestones.filter(m => m.project_id === picked.id && m.month === month && m.year === year)
+    : [];
+  const pickedNetT = pickedRows.reduce((s,m) => s + calcNet(parseFloat(m.amount)||0, picked?.portal), 0);
+  const pickedNetA = pickedRows.reduce((s,m) => s + calcNet(parseFloat(m.achieved)||0, picked?.portal), 0);
+  const pm = picked ? profiles.find(u => u.id === picked.manager_id) : null;
+
+  return (
+    <div style={{ marginTop:28 }}>
+      <div className="divider" style={{ marginBottom:18 }} />
+      <div style={{ fontWeight:700, fontSize:14, marginBottom:10, color:'var(--text2)' }}>
+        🔍 Look up any project
+        <span style={{ fontWeight:400, fontSize:12, color:'var(--text4)', marginLeft:8 }}>Read-only · summary view</span>
+      </div>
+      <div style={{ position:'relative', maxWidth:360 }}>
+        <span style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', color:'var(--text3)', display:'flex', pointerEvents:'none' }}>
+          <Icon name="search" size={13} />
+        </span>
+        <input
+          className="form-control form-control-sm"
+          style={{ paddingLeft:30 }}
+          placeholder="Search project or client name…"
+          value={query}
+          onChange={e => { setQuery(e.target.value); setPicked(null); }}
+        />
+      </div>
+
+      {/* Dropdown results */}
+      {matches.length > 0 && !picked && (
+        <div style={{ maxWidth:360, border:'1px solid var(--border1)', borderRadius:8, marginTop:4, background:'var(--surface)', boxShadow:'0 4px 12px rgba(0,0,0,.08)', zIndex:20, position:'relative' }}>
+          {matches.map(p => (
+            <div key={p.id} onClick={() => { setPicked(p); setQuery(p.name); }}
+              style={{ padding:'9px 14px', cursor:'pointer', borderBottom:'1px solid var(--border1)', fontSize:13 }}
+              onMouseOver={e=>e.currentTarget.style.background='var(--bg2)'}
+              onMouseOut={e=>e.currentTarget.style.background=''}
+            >
+              <span style={{ fontWeight:600 }}>{p.name}</span>
+              <span style={{ color:'var(--text3)', marginLeft:8, fontSize:12 }}>{p.client} · {p.portal}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Lookup result card */}
+      {picked && (
+        <div className="card" style={{ marginTop:12, borderLeft:'3px solid var(--primary)' }}>
+          <div className="card-header" style={{ background:'var(--bg2)' }}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15 }}>{picked.name}</div>
+              <div style={{ fontSize:12, color:'var(--text3)', marginTop:3 }}>
+                <span className="tag">{picked.type}</span>
+                <span className="tag" style={{ marginLeft:6 }}>{picked.portal}</span>
+                {pm && <span style={{ marginLeft:8 }}>PM: {pm.name}</span>}
+              </div>
+            </div>
+            <div style={{ display:'flex', gap:16, alignItems:'center' }}>
+              {pickedRows.length > 0 && (
+                <div style={{ textAlign:'right' }}>
+                  <div style={{ fontSize:11, color:'var(--text3)', marginBottom:2 }}>Net Target / Achieved</div>
+                  <div className="mono" style={{ fontSize:13 }}>
+                    <span style={{ fontWeight:600 }}>{fmt(pickedNetT)}</span>
+                    <span style={{ color:'var(--border2)', margin:'0 5px' }}>/</span>
+                    <span style={{ color:'var(--success)', fontWeight:700 }}>{fmt(pickedNetA)}</span>
+                  </div>
+                </div>
+              )}
+              <button className="btn btn-ghost btn-sm btn-icon" onClick={() => { setPicked(null); setQuery(''); }}>
+                <Icon name="close" size={12} />
+              </button>
+            </div>
+          </div>
+          <div style={{ padding:'12px 18px' }}>
+            {pickedRows.length === 0
+              ? <div style={{ color:'var(--text4)', fontSize:12, fontStyle:'italic' }}>No milestones for {MONTHS[month-1]?.label} {year}.</div>
+              : pickedRows.map(m => (
+                <div key={m.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0', borderBottom:'1px solid var(--border1)' }}>
+                  <div style={{ fontWeight:600, fontSize:13 }}>{m.label}</div>
+                  <div style={{ display:'flex', gap:16, alignItems:'center' }}>
+                    <span className="mono" style={{ fontSize:12, color:'var(--text2)' }}>{fmt(calcNet(parseFloat(m.amount)||0, picked.portal))}</span>
+                    <StatusBadge status={m.status} />
+                  </div>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function MonthlyProjections({ projects, milestones, profiles, onAdd, onUpdate, onDelete }) {
   const { user: me, isAdmin, effectiveManagerId } = useAuth();
   const [activeTab,   setActiveTab]   = useState('projections');
@@ -446,6 +546,11 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
           </div>
         );
       })}
+
+      {/* ── PM: Lookup any project (read-only) ──────────────────── */}
+      {!isAdmin && (
+        <LookupSection projects={projects} milestones={milestones} month={month} year={year} profiles={pms} />
+      )}
 
       </div>} {/* end projections tab */}
 
