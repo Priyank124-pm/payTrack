@@ -2,7 +2,8 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const pool    = require('../db/pool');
 const { authenticate, isAdmin, getEffectiveManagerId } = require('../middleware/auth');
-const { logActivity } = require('../services/logger');
+const { logActivity }            = require('../services/logger');
+const { notifyMany, getAdminIds } = require('../services/notifyService');
 
 const router = express.Router();
 router.use(authenticate);
@@ -71,6 +72,12 @@ router.post('/',
         [project_id, title]
       );
       await logActivity({ user: req.user, action: 'create', entity: 'change_request', entityId: rows[0].id, detail: `Submitted change request '${title}' for project '${rows[0].project_name}'` });
+      const adminIds = await getAdminIds();
+      await notifyMany(adminIds, {
+        type: 'cr_submitted', entityType: 'change_request', entityId: rows[0].id,
+        title: 'New change request pending approval',
+        body:  `"${title}" for project "${rows[0].project_name}" — submitted by ${req.user.name}`,
+      });
       res.status(201).json(rows[0]);
     } catch (err) {
       console.error(err);
@@ -106,6 +113,14 @@ router.patch('/:id/approve', isAdmin, async (req, res) => {
       );
       await conn.commit();
       await logActivity({ user: req.user, action: 'approve', entity: 'change_request', entityId: cr.id, detail: `Approved change request '${cr.title}' for project ID ${cr.project_id}` });
+      if (cr.created_by) {
+        const [proj] = await pool.query('SELECT name FROM projects WHERE id = ?', [cr.project_id]);
+        await require('../services/notifyService').notify(cr.created_by, {
+          type: 'cr_approved', entityType: 'change_request', entityId: cr.id,
+          title: 'Change request approved ✓',
+          body:  `"${cr.title}" for project "${proj[0]?.name}" was approved by ${req.user.name}`,
+        });
+      }
       res.json({ message: 'Change request approved and project reactivated' });
     } catch (err) {
       await conn.rollback();
@@ -129,6 +144,15 @@ router.patch('/:id/reject', isAdmin, async (req, res) => {
     if (!result.affectedRows) return res.status(404).json({ error: 'Pending CR not found' });
     const [crs] = await pool.query('SELECT title, project_id FROM change_requests WHERE id = ?', [req.params.id]);
     await logActivity({ user: req.user, action: 'reject', entity: 'change_request', entityId: req.params.id, detail: `Rejected change request '${crs[0]?.title}' for project ID ${crs[0]?.project_id}` });
+    const [fullCr] = await pool.query('SELECT created_by FROM change_requests WHERE id = ?', [req.params.id]);
+    if (fullCr[0]?.created_by) {
+      const [proj] = await pool.query('SELECT name FROM projects WHERE id = ?', [crs[0]?.project_id]);
+      await require('../services/notifyService').notify(fullCr[0].created_by, {
+        type: 'cr_rejected', entityType: 'change_request', entityId: req.params.id,
+        title: 'Change request rejected',
+        body:  `"${crs[0]?.title}" for project "${proj[0]?.name}" was rejected by ${req.user.name}`,
+      });
+    }
     res.json({ message: 'Change request rejected' });
   } catch (err) {
     console.error(err);

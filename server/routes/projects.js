@@ -3,6 +3,7 @@ const { body, query, validationResult } = require('express-validator');
 const pool    = require('../db/pool');
 const { authenticate, isAdmin, isSuperAdmin, getEffectiveManagerId } = require('../middleware/auth');
 const { logActivity } = require('../services/logger');
+const { notify }      = require('../services/notifyService');
 
 const router = express.Router();
 router.use(authenticate);
@@ -111,6 +112,13 @@ router.post('/',
         [name, client]
       );
       await logActivity({ user: req.user, action: 'create', entity: 'project', entityId: rows[0].id, detail: `Created project '${name}' for client '${client}'` });
+      if (coordinator_id) {
+        await notify(coordinator_id, {
+          type: 'project_assigned', entityType: 'project', entityId: rows[0].id,
+          title: 'You have been assigned to a project',
+          body:  `Project "${name}" (${client}) has been assigned to you`,
+        });
+      }
       res.status(201).json(rows[0]);
     } catch (err) {
       console.error(err);
@@ -267,6 +275,15 @@ router.patch('/:id', async (req, res) => {
       [req.params.id]
     );
     await logActivity({ user: req.user, action: 'update', entity: 'project', entityId: req.params.id, detail: `Updated project '${rows[0].name}'` });
+    // Notify new coordinator if coordinator_id changed
+    const newCoord = req.body.coordinator_id;
+    if (newCoord && newCoord !== existing[0].coordinator_id) {
+      await notify(newCoord, {
+        type: 'project_assigned', entityType: 'project', entityId: req.params.id,
+        title: 'You have been assigned to a project',
+        body:  `Project "${rows[0].name}" has been assigned to you`,
+      });
+    }
     res.json(rows[0]);
   } catch (err) {
     console.error(err);

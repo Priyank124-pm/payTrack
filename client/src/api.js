@@ -93,6 +93,15 @@ export const logsAPI = {
   users: ()            => get('/api/activity-logs/users'),
 };
 
+// ── Notifications ──────────────────────────────────────────────
+export const notificationsAPI = {
+  list:    ()   => get('/api/notifications'),
+  count:   ()   => get('/api/notifications/count'),
+  markRead:(id) => patch(`/api/notifications/${id}/read`, {}),
+  readAll: ()   => patch('/api/notifications/read-all', {}),
+  clear:   ()   => del('/api/notifications/clear'),
+};
+
 // ── Tasks ──────────────────────────────────────────────────────
 export const tasksAPI = {
   list:     (params = {}) => { const qs = new URLSearchParams(params).toString(); return get(`/api/tasks${qs ? '?' + qs : ''}`); },
