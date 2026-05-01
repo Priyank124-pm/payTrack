@@ -35,15 +35,18 @@ export const authAPI = {
   login:          (email, password) => post('/api/auth/login', { email, password }),
   me:             ()                => get('/api/auth/me'),
   changePassword: (body)            => post('/api/auth/change-password', body),
+  forgotPassword: (email)           => post('/api/auth/forgot-password', { email }),
+  resetPassword:  (token, newPassword) => post('/api/auth/reset-password', { token, newPassword }),
 };
 
 // ── Users ──────────────────────────────────────────────────────
 export const usersAPI = {
-  list:       ()          => get('/api/users'),
-  create:     (body)      => post('/api/users', body),
-  update:     (id, body)  => patch(`/api/users/${id}`, body),
-  remove:     (id)        => del(`/api/users/${id}`),
-  seedAdmin:  (body)      => post('/api/users/seed-admin', body),
+  list:           ()          => get('/api/users'),
+  create:         (body)      => post('/api/users', body),
+  update:         (id, body)  => patch(`/api/users/${id}`, body),
+  remove:         (id)        => del(`/api/users/${id}`),
+  seedAdmin:      (body)      => post('/api/users/seed-admin', body),
+  changePassword: (id, newPassword) => patch(`/api/users/${id}/change-password`, { newPassword }),
 };
 
 // ── Projects ───────────────────────────────────────────────────
