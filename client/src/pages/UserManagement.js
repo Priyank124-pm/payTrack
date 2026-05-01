@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Modal, Icon, Avatar, RoleBadge, EmptyState, Spinner } from '../components/UI';
 import { useAuth } from '../context/AuthContext';
+import { usersAPI } from '../api';
 
 export default function UserManagement({ profiles, onAdd, onUpdate, onDelete }) {
   const { user: me, isSuperAdmin } = useAuth();
@@ -9,6 +10,32 @@ export default function UserManagement({ profiles, onAdd, onUpdate, onDelete }) 
   const [error,       setError]       = useState('');
   const [saving,      setSaving]      = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Admin change-password state
+  const [pwTarget,  setPwTarget]  = useState(null); // the user whose password is being changed
+  const [pwForm,    setPwForm]    = useState({ newPassword:'', confirmPassword:'' });
+  const [pwError,   setPwError]   = useState('');
+  const [pwSuccess, setPwSuccess] = useState('');
+  const [pwSaving,  setPwSaving]  = useState(false);
+
+  const openChangePw = (u) => {
+    setPwTarget(u);
+    setPwForm({ newPassword:'', confirmPassword:'' });
+    setPwError(''); setPwSuccess('');
+  };
+
+  const saveChangePw = async () => {
+    setPwError(''); setPwSuccess('');
+    if (pwForm.newPassword.length < 6) return setPwError('Password must be at least 6 characters.');
+    if (pwForm.newPassword !== pwForm.confirmPassword) return setPwError('Passwords do not match.');
+    setPwSaving(true);
+    try {
+      await usersAPI.changePassword(pwTarget.id, pwForm.newPassword);
+      setPwSuccess('Password updated successfully!');
+      setTimeout(() => setPwTarget(null), 1800);
+    } catch (e) { setPwError(e.message); }
+    finally { setPwSaving(false); }
+  };
 
   const pms = profiles.filter(u => u.role === 'project_manager');
   const setF = (k, v) => setForm(p => ({ ...p, [k]: v }));
@@ -104,7 +131,8 @@ export default function UserManagement({ profiles, onAdd, onUpdate, onDelete }) 
                         {role==='coordinator' && <td>{pm ? <span className="tag">{pm.name}</span> : <span className="text-muted">—</span>}</td>}
                         <td style={{ textAlign:'right' }}>
                           <div style={{ display:'flex', gap:5, justifyContent:'flex-end' }}>
-                            <button className="btn btn-sm btn-ghost btn-icon" onClick={() => openEdit(u)}><Icon name="edit" size={13} /></button>
+                            <button className="btn btn-sm btn-ghost btn-icon" onClick={() => openEdit(u)} title="Edit user"><Icon name="edit" size={13} /></button>
+                            <button className="btn btn-sm btn-ghost btn-icon" onClick={() => openChangePw(u)} title="Change password"><Icon name="key" size={13} /></button>
                             {u.id !== me?.id && isSuperAdmin &&
                               <button className="btn btn-sm btn-danger btn-icon" onClick={() => handleDelete(u.id)}><Icon name="delete" size={13} /></button>
                             }
@@ -118,6 +146,54 @@ export default function UserManagement({ profiles, onAdd, onUpdate, onDelete }) 
           </div>
         );
       })}
+
+      {/* ── Admin: Change Password Modal ─────────────────────── */}
+      {pwTarget && (
+        <Modal
+          title={`Change Password — ${pwTarget.name}`}
+          onClose={() => setPwTarget(null)}
+          small
+          footer={<>
+            <button className="btn btn-ghost" onClick={() => setPwTarget(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={saveChangePw} disabled={pwSaving}>
+              {pwSaving ? <Spinner /> : <><Icon name="key" size={13}/>Update Password</>}
+            </button>
+          </>}
+        >
+          {pwError   && <div className="alert alert-error"   style={{ marginBottom:14 }}><Icon name="warning" size={13}/>{pwError}</div>}
+          {pwSuccess && <div className="alert alert-success" style={{ marginBottom:14 }}><Icon name="check"   size={13}/>{pwSuccess}</div>}
+          <div style={{ fontSize:12, color:'var(--text3)', marginBottom:14, background:'var(--bg2)', borderRadius:8, padding:'8px 12px' }}>
+            Setting a new password for <strong>{pwTarget.name}</strong> ({pwTarget.email}). The user will need to use this password on their next login.
+          </div>
+          <div className="form-group">
+            <label className="form-label">New Password</label>
+            <input
+              className="form-control"
+              type="password"
+              value={pwForm.newPassword}
+              onChange={e => setPwForm(p => ({ ...p, newPassword: e.target.value }))}
+              placeholder="Min 6 characters"
+              autoFocus
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Confirm Password</label>
+            <input
+              className="form-control"
+              type="password"
+              value={pwForm.confirmPassword}
+              onChange={e => setPwForm(p => ({ ...p, confirmPassword: e.target.value }))}
+              placeholder="Repeat new password"
+            />
+            {pwForm.confirmPassword && pwForm.newPassword !== pwForm.confirmPassword && (
+              <div className="form-error">Passwords do not match</div>
+            )}
+            {pwForm.confirmPassword && pwForm.newPassword === pwForm.confirmPassword && pwForm.confirmPassword.length > 0 && (
+              <div style={{ fontSize:11, color:'var(--success)', marginTop:3, fontWeight:500 }}>✓ Passwords match</div>
+            )}
+          </div>
+        </Modal>
+      )}
 
       {modal && (
         <Modal title={modal==='add'?'Add User':'Edit User'} onClose={() => setModal(null)}

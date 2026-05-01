@@ -69,6 +69,17 @@ CREATE TABLE IF NOT EXISTS activity_logs (
   INDEX idx_logs_entity  (entity)
 );
 
+-- Password Reset Tokens
+CREATE TABLE IF NOT EXISTS password_resets (
+  id         CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+  user_id    CHAR(36)     NOT NULL,
+  token      CHAR(64)     NOT NULL UNIQUE,
+  expires_at DATETIME     NOT NULL,
+  created_at DATETIME     DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_pr_token (token),
+  INDEX idx_pr_user  (user_id)
+);
+
 -- Tasks
 CREATE TABLE IF NOT EXISTS tasks (
   id               CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
@@ -159,6 +170,17 @@ async function initDB() {
       )
     `);
 
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS password_resets (
+        id         CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+        user_id    CHAR(36)     NOT NULL,
+        token      CHAR(64)     NOT NULL UNIQUE,
+        expires_at DATETIME     NOT NULL,
+        created_at DATETIME     DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_pr_token (token),
+        INDEX idx_pr_user  (user_id)
+      )
+    `);
     await migrate(`
       CREATE TABLE IF NOT EXISTS tasks (
         id               CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
