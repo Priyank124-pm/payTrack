@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Icon, Avatar, fmt, pct, ProgressBar, EmptyState, Spinner, StatusBadge, MONTHS, YEARS, CURRENT_MONTH, CURRENT_YEAR, todayStr } from '../components/UI';
-import { COMMISSION_PORTALS, calcNet } from '../hooks/useData';
+import { COMMISSION_PORTALS, PORTALS, calcNet } from '../hooks/useData';
 import { useAuth } from '../context/AuthContext';
 
 // ── KEY FIX: MilestoneFields is declared OUTSIDE MonthlyProjections.
@@ -216,6 +216,8 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
   const [newM,     setNewM]     = useState({});
   const [saving,   setSaving]   = useState(false);
   const [error,    setError]    = useState('');
+  const [pendPortal, setPendPortal] = useState('all');
+  const [pendPM,     setPendPM]     = useState('all');
 
   const pms            = profiles.filter(u => u.role === 'project_manager');
   const coordinators   = profiles.filter(u => u.role === 'coordinator');
@@ -247,9 +249,14 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
   const myProjectIds = new Set(visProjects.map(p => p.id).concat(
     projects.filter(pr => isAdmin || pr.manager_id === effectiveManagerId).map(p => p.id)
   ));
-  const pendingMs = milestones.filter(m =>
-    myProjectIds.has(m.project_id) && m.status !== 'Paid'
-  );
+  const pendingMs = milestones.filter(m => {
+    if (!myProjectIds.has(m.project_id)) return false;
+    if (m.status === 'Paid') return false;
+    const pr = projects.find(p => p.id === m.project_id);
+    if (pendPortal !== 'all' && pr?.portal !== pendPortal) return false;
+    if (pendPM     !== 'all' && pr?.manager_id !== pendPM) return false;
+    return true;
+  });
   // Group pending milestones by year+month, newest first
   const pendingByMonth = Object.values(
     pendingMs.reduce((acc, m) => {
@@ -555,117 +562,206 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
       </div>} {/* end projections tab */}
 
       {/* ── Pending Payments Tab ─────────────────────────────────── */}
-      {activeTab === 'pending' && (
-        <div>
-          <div style={{ marginBottom:16 }}>
-            <div className="page-title" style={{ fontSize:17 }}>Pending Payments</div>
-            <div className="text-muted" style={{ marginTop:3 }}>
-              {pendingMs.length} milestone{pendingMs.length !== 1 ? 's' : ''} unpaid across all months
-            </div>
-          </div>
+      {activeTab === 'pending' && (() => {
+        // Grand totals across all filtered pending milestones
+        const totalTarget   = pendingMs.reduce((s,m) => { const pr = projects.find(p=>p.id===m.project_id); return s + calcNet(parseFloat(m.amount)||0, pr?.portal); }, 0);
+        const totalAchieved = pendingMs.reduce((s,m) => { const pr = projects.find(p=>p.id===m.project_id); return s + calcNet(parseFloat(m.achieved)||0, pr?.portal); }, 0);
+        const totalPending  = totalTarget - totalAchieved;
 
-          {error && <div className="alert alert-error" style={{ marginBottom:10 }}><Icon name="warning" size={13} />{error}</div>}
+        const exportCSV = () => {
+          const rows = [['Month','Year','Project','Client','Portal','PM','Milestone','Target Date','Net Target','Net Received','Remaining','Status']];
+          pendingMs.forEach(m => {
+            const pr     = projects.find(p=>p.id===m.project_id);
+            const pmUser = profiles.find(u=>u.id===pr?.manager_id);
+            const netAmt = calcNet(parseFloat(m.amount)||0, pr?.portal);
+            const netAch = calcNet(parseFloat(m.achieved)||0, pr?.portal);
+            rows.push([
+              MONTHS[m.month-1]?.label, m.year,
+              pr?.name||'', pr?.client||'', pr?.portal||'',
+              pmUser?.name||'',
+              m.label, m.target_date||'',
+              netAmt.toFixed(2), netAch.toFixed(2), (netAmt-netAch).toFixed(2), m.status,
+            ]);
+          });
+          const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+          const blob = new Blob([csv], { type:'text/csv' });
+          const url  = URL.createObjectURL(blob);
+          const a = document.createElement('a'); a.href=url; a.download='pending_payments.csv'; a.click();
+          URL.revokeObjectURL(url);
+        };
 
-          {pendingByMonth.length === 0 && (
-            <div className="card card-p">
-              <EmptyState icon="✅" message="No pending payments — all milestones are paid!" />
-            </div>
-          )}
+        const hasFilters = pendPortal !== 'all' || pendPM !== 'all';
 
-          {pendingByMonth.map(group => {
-            const groupTarget   = group.items.reduce((s,m) => { const pr = projects.find(p=>p.id===m.project_id); return s + calcNet(parseFloat(m.amount)||0, pr?.portal); }, 0);
-            const groupAchieved = group.items.reduce((s,m) => { const pr = projects.find(p=>p.id===m.project_id); return s + calcNet(parseFloat(m.achieved)||0, pr?.portal); }, 0);
-            const groupPending  = groupTarget - groupAchieved;
+        return (
+          <div>
+            {/* Header + filter bar */}
+            <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', flexWrap:'wrap', gap:12, marginBottom:14 }}>
+              <div>
+                <div className="page-title" style={{ fontSize:17 }}>Pending Payments</div>
+                <div className="text-muted" style={{ marginTop:3 }}>
+                  {pendingMs.length} milestone{pendingMs.length !== 1 ? 's' : ''} unpaid
+                  {hasFilters ? ' (filtered)' : ' across all months'}
+                </div>
+              </div>
+              <div style={{ display:'flex', gap:8, alignItems:'flex-end', flexWrap:'wrap' }}>
+                {/* Portal filter */}
+                <div className="form-group" style={{ marginBottom:0 }}>
+                  <label className="form-label">Portal</label>
+                  <select className="form-control form-control-sm" value={pendPortal} onChange={e=>setPendPortal(e.target.value)}>
+                    <option value="all">All Portals</option>
+                    {PORTALS.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
 
-            return (
-              <div key={group.key} className="card" style={{ marginBottom:14 }}>
-                {/* Month header */}
-                <div className="card-header" style={{ background:'var(--bg2)' }}>
-                  <div style={{ fontWeight:700, fontSize:15 }}>
-                    {MONTHS[group.month-1]?.label} {group.year}
-                    <span className="badge badge-yellow" style={{ marginLeft:10, fontSize:11 }}>
-                      {group.items.length} pending
-                    </span>
+                {/* PM filter — admin only */}
+                {isAdmin && pms.length > 0 && (
+                  <div className="form-group" style={{ marginBottom:0 }}>
+                    <label className="form-label">PM</label>
+                    <select className="form-control form-control-sm" value={pendPM} onChange={e=>setPendPM(e.target.value)}>
+                      <option value="all">All PMs</option>
+                      {pms.map(pm => <option key={pm.id} value={pm.id}>{pm.name}</option>)}
+                    </select>
                   </div>
-                  <div style={{ display:'flex', gap:20, flexWrap:'wrap' }}>
+                )}
+
+                {/* Clear filters */}
+                {hasFilters && (
+                  <button className="btn btn-ghost btn-sm" onClick={()=>{ setPendPortal('all'); setPendPM('all'); }}>
+                    <Icon name="close" size={12}/>Clear
+                  </button>
+                )}
+
+                {/* Export CSV */}
+                <button className="btn btn-ghost btn-sm" onClick={exportCSV} disabled={pendingMs.length === 0} title="Export to CSV">
+                  <Icon name="download" size={13}/>Export CSV
+                </button>
+              </div>
+            </div>
+
+            {/* Grand total summary bar */}
+            {pendingMs.length > 0 && (
+              <div className="card card-p" style={{ background:'#FEF2F2', border:'1.5px solid #FCA5A5', marginBottom:14 }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:14 }}>
+                  <div style={{ fontWeight:700, fontSize:14, color:'#B91C1C' }}>Total Pending Summary</div>
+                  <div style={{ display:'flex', gap:24, flexWrap:'wrap' }}>
                     {[
-                      ['Target',   fmt(groupTarget),   'var(--text2)'],
-                      ['Received', fmt(groupAchieved), 'var(--success)'],
-                      ['Pending',  fmt(groupPending),  'var(--danger)'],
+                      ['Net Target',   fmt(totalTarget),   'var(--text2)'],
+                      ['Net Received', fmt(totalAchieved), 'var(--success)'],
+                      ['Total Pending',fmt(totalPending),  'var(--danger)'],
                     ].map(([l,v,c]) => (
                       <div key={l} style={{ textAlign:'right' }}>
-                        <div style={{ fontSize:10, color:'var(--text3)', textTransform:'uppercase', letterSpacing:.7, marginBottom:1 }}>{l}</div>
-                        <div className="mono" style={{ fontSize:14, fontWeight:700, color:c }}>{v}</div>
+                        <div style={{ fontSize:10, color:'var(--text3)', textTransform:'uppercase', letterSpacing:.7, marginBottom:2 }}>{l}</div>
+                        <div className="mono" style={{ fontSize:17, fontWeight:800, color:c }}>{v}</div>
                       </div>
                     ))}
                   </div>
                 </div>
-
-                {/* Milestone rows */}
-                <div style={{ padding:'0 18px 10px' }}>
-                  {group.items.map(m => {
-                    const pr     = projects.find(p => p.id === m.project_id);
-                    const hasC   = COMMISSION_PORTALS.includes(pr?.portal);
-                    const netAmt = calcNet(parseFloat(m.amount)||0, pr?.portal);
-                    const netAch = calcNet(parseFloat(m.achieved)||0, pr?.portal);
-                    const pmUser = profiles.find(u => u.id === pr?.manager_id);
-
-                    return (
-                      <div key={m.id} className={`m-row${editId === m.id ? ' editing' : ''}`}>
-                        {editId === m.id ? (
-                          <MilestoneFields
-                            vals={editBuf}
-                            onChange={setB}
-                            portal={pr?.portal}
-                            onSave={saveEdit}
-                            onCancel={cancelEdit}
-                            saving={saving}
-                            isEdit
-                          />
-                        ) : (
-                          <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10, flexWrap:'wrap' }}>
-                            <div style={{ display:'flex', gap:16, flex:1, flexWrap:'wrap' }}>
-                              <div style={{ minWidth:140 }}>
-                                <div style={{ fontWeight:600, fontSize:13 }}>{m.label}</div>
-                                <div style={{ fontSize:11, color:'var(--text3)', marginTop:2 }}>
-                                  {pr?.name}
-                                  {isAdmin && pmUser && <span style={{ marginLeft:6 }}>· {pmUser.name}</span>}
-                                </div>
-                                {m.target_date && (
-                                  <div className="mono" style={{ fontSize:11, color:'var(--text4)', marginTop:1 }}>{m.target_date}</div>
-                                )}
-                              </div>
-                              <div>
-                                <div className="form-label">Target</div>
-                                <div className="mono" style={{ fontSize:13 }}>{fmt(netAmt)}</div>
-                                {hasC && <div style={{ fontSize:10, color:'var(--text3)' }}>-20% applied</div>}
-                              </div>
-                              <div>
-                                <div className="form-label">Received</div>
-                                <div className="mono" style={{ fontSize:13, color:'var(--success)', fontWeight:600 }}>{fmt(netAch)}</div>
-                              </div>
-                              <div>
-                                <div className="form-label">Remaining</div>
-                                <div className="mono" style={{ fontSize:13, color: netAmt > netAch ? 'var(--danger)' : 'var(--success)', fontWeight:600 }}>
-                                  {fmt(netAmt - netAch)}
-                                </div>
-                              </div>
-                              <div><StatusBadge status={m.status} /></div>
-                            </div>
-                            <button className="btn btn-sm btn-ghost btn-icon" onClick={() => startEdit(m)}>
-                              <Icon name="edit" size={12} />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
               </div>
-            );
-          })}
-        </div>
-      )}
+            )}
+
+            {error && <div className="alert alert-error" style={{ marginBottom:10 }}><Icon name="warning" size={13} />{error}</div>}
+
+            {pendingByMonth.length === 0 && (
+              <div className="card card-p">
+                <EmptyState icon="✅" message={hasFilters ? 'No pending payments match the selected filters.' : 'No pending payments — all milestones are paid!'} />
+              </div>
+            )}
+
+            {pendingByMonth.map(group => {
+              const groupTarget   = group.items.reduce((s,m) => { const pr = projects.find(p=>p.id===m.project_id); return s + calcNet(parseFloat(m.amount)||0, pr?.portal); }, 0);
+              const groupAchieved = group.items.reduce((s,m) => { const pr = projects.find(p=>p.id===m.project_id); return s + calcNet(parseFloat(m.achieved)||0, pr?.portal); }, 0);
+              const groupPending  = groupTarget - groupAchieved;
+
+              return (
+                <div key={group.key} className="card" style={{ marginBottom:14 }}>
+                  <div className="card-header" style={{ background:'var(--bg2)' }}>
+                    <div style={{ fontWeight:700, fontSize:15 }}>
+                      {MONTHS[group.month-1]?.label} {group.year}
+                      <span className="badge badge-yellow" style={{ marginLeft:10, fontSize:11 }}>
+                        {group.items.length} pending
+                      </span>
+                    </div>
+                    <div style={{ display:'flex', gap:20, flexWrap:'wrap' }}>
+                      {[
+                        ['Target',   fmt(groupTarget),   'var(--text2)'],
+                        ['Received', fmt(groupAchieved), 'var(--success)'],
+                        ['Pending',  fmt(groupPending),  'var(--danger)'],
+                      ].map(([l,v,c]) => (
+                        <div key={l} style={{ textAlign:'right' }}>
+                          <div style={{ fontSize:10, color:'var(--text3)', textTransform:'uppercase', letterSpacing:.7, marginBottom:1 }}>{l}</div>
+                          <div className="mono" style={{ fontSize:14, fontWeight:700, color:c }}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ padding:'0 18px 10px' }}>
+                    {group.items.map(m => {
+                      const pr     = projects.find(p => p.id === m.project_id);
+                      const hasC   = COMMISSION_PORTALS.includes(pr?.portal);
+                      const netAmt = calcNet(parseFloat(m.amount)||0, pr?.portal);
+                      const netAch = calcNet(parseFloat(m.achieved)||0, pr?.portal);
+                      const pmUser = profiles.find(u => u.id === pr?.manager_id);
+
+                      return (
+                        <div key={m.id} className={`m-row${editId === m.id ? ' editing' : ''}`}>
+                          {editId === m.id ? (
+                            <MilestoneFields
+                              vals={editBuf}
+                              onChange={setB}
+                              portal={pr?.portal}
+                              onSave={saveEdit}
+                              onCancel={cancelEdit}
+                              saving={saving}
+                              isEdit
+                            />
+                          ) : (
+                            <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10, flexWrap:'wrap' }}>
+                              <div style={{ display:'flex', gap:16, flex:1, flexWrap:'wrap' }}>
+                                <div style={{ minWidth:140 }}>
+                                  <div style={{ fontWeight:600, fontSize:13 }}>{m.label}</div>
+                                  <div style={{ fontSize:11, color:'var(--text3)', marginTop:2 }}>
+                                    {pr?.name}
+                                    {isAdmin && pmUser && <span style={{ marginLeft:6 }}>· {pmUser.name}</span>}
+                                  </div>
+                                  <div style={{ display:'flex', gap:5, marginTop:3, alignItems:'center', flexWrap:'wrap' }}>
+                                    {pr?.portal && <span className="tag" style={{ fontSize:10 }}>{pr.portal}</span>}
+                                    {hasC && <span className="badge badge-yellow" style={{ fontSize:10 }}>-20%</span>}
+                                    {m.target_date && <span className="mono" style={{ fontSize:10, color:'var(--text4)' }}>{m.target_date}</span>}
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className="form-label">Target</div>
+                                  <div className="mono" style={{ fontSize:13 }}>{fmt(netAmt)}</div>
+                                  {hasC && <div style={{ fontSize:10, color:'var(--text3)' }}>-20% applied</div>}
+                                </div>
+                                <div>
+                                  <div className="form-label">Received</div>
+                                  <div className="mono" style={{ fontSize:13, color:'var(--success)', fontWeight:600 }}>{fmt(netAch)}</div>
+                                </div>
+                                <div>
+                                  <div className="form-label">Remaining</div>
+                                  <div className="mono" style={{ fontSize:13, color: netAmt > netAch ? 'var(--danger)' : 'var(--success)', fontWeight:600 }}>
+                                    {fmt(netAmt - netAch)}
+                                  </div>
+                                </div>
+                                <div><StatusBadge status={m.status} /></div>
+                              </div>
+                              <button className="btn btn-sm btn-ghost btn-icon" onClick={() => startEdit(m)}>
+                                <Icon name="edit" size={12} />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
     </div>
   );
