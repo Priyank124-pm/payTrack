@@ -69,6 +69,39 @@ CREATE TABLE IF NOT EXISTS activity_logs (
   INDEX idx_logs_entity  (entity)
 );
 
+-- Tasks
+CREATE TABLE IF NOT EXISTS tasks (
+  id               CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+  title            VARCHAR(255) NOT NULL,
+  description      TEXT         DEFAULT NULL,
+  assigned_to      CHAR(36)     DEFAULT NULL,
+  assigned_to_name VARCHAR(120) NOT NULL DEFAULT '',
+  assigned_to_role VARCHAR(50)  NOT NULL DEFAULT '',
+  assigned_by      CHAR(36)     DEFAULT NULL,
+  assigned_by_name VARCHAR(120) NOT NULL DEFAULT '',
+  status           ENUM('open','completed') NOT NULL DEFAULT 'open',
+  completion_note  TEXT         DEFAULT NULL,
+  completed_by     CHAR(36)     DEFAULT NULL,
+  completed_by_name VARCHAR(120) DEFAULT NULL,
+  completed_at     DATETIME     DEFAULT NULL,
+  created_at       DATETIME     DEFAULT CURRENT_TIMESTAMP,
+  updated_at       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_tasks_assigned (assigned_to),
+  INDEX idx_tasks_status   (status)
+);
+
+-- Task Comments
+CREATE TABLE IF NOT EXISTS task_comments (
+  id         CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+  task_id    CHAR(36)     NOT NULL,
+  user_id    CHAR(36)     DEFAULT NULL,
+  user_name  VARCHAR(120) NOT NULL,
+  user_role  VARCHAR(50)  NOT NULL,
+  comment    TEXT         NOT NULL,
+  created_at DATETIME     DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_task_comments_task (task_id)
+);
+
 -- Change Requests
 CREATE TABLE IF NOT EXISTS change_requests (
   id          CHAR(36)      PRIMARY KEY DEFAULT (UUID()),
@@ -123,6 +156,40 @@ async function initDB() {
         INDEX idx_logs_user    (user_id),
         INDEX idx_logs_created (created_at),
         INDEX idx_logs_entity  (entity)
+      )
+    `);
+
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS tasks (
+        id               CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+        title            VARCHAR(255) NOT NULL,
+        description      TEXT         DEFAULT NULL,
+        assigned_to      CHAR(36)     DEFAULT NULL,
+        assigned_to_name VARCHAR(120) NOT NULL DEFAULT '',
+        assigned_to_role VARCHAR(50)  NOT NULL DEFAULT '',
+        assigned_by      CHAR(36)     DEFAULT NULL,
+        assigned_by_name VARCHAR(120) NOT NULL DEFAULT '',
+        status           ENUM('open','completed') NOT NULL DEFAULT 'open',
+        completion_note  TEXT         DEFAULT NULL,
+        completed_by     CHAR(36)     DEFAULT NULL,
+        completed_by_name VARCHAR(120) DEFAULT NULL,
+        completed_at     DATETIME     DEFAULT NULL,
+        created_at       DATETIME     DEFAULT CURRENT_TIMESTAMP,
+        updated_at       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_tasks_assigned (assigned_to),
+        INDEX idx_tasks_status   (status)
+      )
+    `);
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS task_comments (
+        id         CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+        task_id    CHAR(36)     NOT NULL,
+        user_id    CHAR(36)     DEFAULT NULL,
+        user_name  VARCHAR(120) NOT NULL,
+        user_role  VARCHAR(50)  NOT NULL,
+        comment    TEXT         NOT NULL,
+        created_at DATETIME     DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_task_comments_task (task_id)
       )
     `);
 

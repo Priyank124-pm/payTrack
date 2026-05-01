@@ -89,3 +89,15 @@ export const logsAPI = {
   list:  (params = {}) => { const qs = new URLSearchParams(params).toString(); return get(`/api/activity-logs${qs ? '?' + qs : ''}`); },
   users: ()            => get('/api/activity-logs/users'),
 };
+
+// ── Tasks ──────────────────────────────────────────────────────
+export const tasksAPI = {
+  list:     (params = {}) => { const qs = new URLSearchParams(params).toString(); return get(`/api/tasks${qs ? '?' + qs : ''}`); },
+  create:   (body)        => post('/api/tasks', body),
+  update:   (id, body)    => patch(`/api/tasks/${id}`, body),
+  complete: (id, note)    => patch(`/api/tasks/${id}/complete`, { note }),
+  reopen:   (id)          => patch(`/api/tasks/${id}/reopen`, {}),
+  remove:   (id)          => del(`/api/tasks/${id}`),
+  comments: (id)          => get(`/api/tasks/${id}/comments`),
+  addComment: (id, comment) => post(`/api/tasks/${id}/comments`, { comment }),
+};
