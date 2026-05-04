@@ -69,6 +69,22 @@ CREATE TABLE IF NOT EXISTS activity_logs (
   INDEX idx_logs_entity  (entity)
 );
 
+-- In-App User Notifications
+CREATE TABLE IF NOT EXISTS user_notifications (
+  id          CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+  user_id     CHAR(36)     NOT NULL,
+  type        VARCHAR(60)  NOT NULL,
+  title       VARCHAR(255) NOT NULL,
+  body        TEXT         DEFAULT NULL,
+  entity_type VARCHAR(60)  DEFAULT NULL,
+  entity_id   CHAR(36)     DEFAULT NULL,
+  is_read     TINYINT(1)   NOT NULL DEFAULT 0,
+  created_at  DATETIME     DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_notif_user    (user_id),
+  INDEX idx_notif_unread  (user_id, is_read),
+  INDEX idx_notif_created (created_at)
+);
+
 -- Password Reset Tokens
 CREATE TABLE IF NOT EXISTS password_resets (
   id         CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
@@ -170,6 +186,22 @@ async function initDB() {
       )
     `);
 
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS user_notifications (
+        id          CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+        user_id     CHAR(36)     NOT NULL,
+        type        VARCHAR(60)  NOT NULL,
+        title       VARCHAR(255) NOT NULL,
+        body        TEXT         DEFAULT NULL,
+        entity_type VARCHAR(60)  DEFAULT NULL,
+        entity_id   CHAR(36)     DEFAULT NULL,
+        is_read     TINYINT(1)   NOT NULL DEFAULT 0,
+        created_at  DATETIME     DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_notif_user    (user_id),
+        INDEX idx_notif_unread  (user_id, is_read),
+        INDEX idx_notif_created (created_at)
+      )
+    `);
     await migrate(`
       CREATE TABLE IF NOT EXISTS password_resets (
         id         CHAR(36)     PRIMARY KEY DEFAULT (UUID()),

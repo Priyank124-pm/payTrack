@@ -1,5 +1,6 @@
 const pool = require('../db/pool');
 const { sendMail, overdueTemplate, dueSoonTemplate } = require('./emailService');
+const { notify } = require('./notifyService');
 
 // ── Run the notification check ────────────────────────────────
 async function runNotifications() {
@@ -79,6 +80,24 @@ async function runNotifications() {
       }
     }
 
+    // ── In-app notifications for PMs (overdue + due soon) ─────
+    for (const pmId of allPMIds) {
+      if (overdueByPM[pmId]?.length) {
+        await notify(pmId, {
+          type: 'milestone_overdue',
+          title: `${overdueByPM[pmId].length} overdue payment${overdueByPM[pmId].length > 1 ? 's' : ''} need attention`,
+          body:  overdueByPM[pmId].map(m => `${m.project_name}: ${m.label}`).join(', '),
+        });
+      }
+      if (dueSoonByPM[pmId]?.length) {
+        await notify(pmId, {
+          type: 'milestone_due_soon',
+          title: `${dueSoonByPM[pmId].length} payment${dueSoonByPM[pmId].length > 1 ? 's' : ''} due within 3 days`,
+          body:  dueSoonByPM[pmId].map(m => `${m.project_name}: ${m.label} (${m.target_date})`).join(', '),
+        });
+      }
+    }
+
     // ── Also notify coordinators for their PM's projects ───────
     const [coords] = await pool.query(`
       SELECT id, name, email, manager_id FROM users WHERE role = 'coordinator' AND manager_id IS NOT NULL
@@ -94,6 +113,11 @@ async function runNotifications() {
           subject: `⚠️ ${coordOverdue.length} Overdue Payment(s) — NexPortal`,
           html:    overdueTemplate({ recipientName: coord.name, milestones: coordOverdue }),
         });
+        await notify(coord.id, {
+          type: 'milestone_overdue',
+          title: `${coordOverdue.length} overdue payment${coordOverdue.length > 1 ? 's' : ''} in your projects`,
+          body:  coordOverdue.map(m => `${m.project_name}: ${m.label}`).join(', '),
+        });
         console.log(`[Notifications] Overdue email → coordinator ${coord.email}`);
       }
       if (coordDueSoon.length) {
@@ -101,6 +125,11 @@ async function runNotifications() {
           to:      coord.email,
           subject: `📅 ${coordDueSoon.length} Payment(s) Due Soon — NexPortal`,
           html:    dueSoonTemplate({ recipientName: coord.name, milestones: coordDueSoon }),
+        });
+        await notify(coord.id, {
+          type: 'milestone_due_soon',
+          title: `${coordDueSoon.length} payment${coordDueSoon.length > 1 ? 's' : ''} due within 3 days`,
+          body:  coordDueSoon.map(m => `${m.project_name}: ${m.label} (${m.target_date})`).join(', '),
         });
         console.log(`[Notifications] Due-soon email → coordinator ${coord.email}`);
       }

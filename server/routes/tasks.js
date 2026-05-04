@@ -2,6 +2,7 @@ const express = require('express');
 const pool    = require('../db/pool');
 const { authenticate } = require('../middleware/auth');
 const { logActivity }  = require('../services/logger');
+const { notify }       = require('../services/notifyService');
 
 const router = express.Router();
 router.use(authenticate);
@@ -81,6 +82,11 @@ router.post('/', async (req, res) => {
     );
     const [rows] = await pool.query('SELECT * FROM tasks WHERE assigned_by = ? ORDER BY created_at DESC LIMIT 1', [req.user.id]);
     await logActivity({ user: req.user, action: 'create', entity: 'task', entityId: rows[0].id, detail: `Created task '${title}' → ${target.name}` });
+    await notify(target.id, {
+      type: 'task_assigned', entityType: 'task', entityId: rows[0].id,
+      title: 'New task assigned to you',
+      body:  `"${title}" — assigned by ${req.user.name}`,
+    });
     res.status(201).json(rows[0]);
   } catch (err) {
     console.error(err);
@@ -132,6 +138,14 @@ router.patch('/:id/complete', async (req, res) => {
     );
     const [rows] = await pool.query('SELECT * FROM tasks WHERE id = ?', [req.params.id]);
     await logActivity({ user: req.user, action: 'update', entity: 'task', entityId: req.params.id, detail: `Completed task '${task.title}'` });
+    // Notify the task creator (unless they completed it themselves)
+    if (task.assigned_by && task.assigned_by !== req.user.id) {
+      await notify(task.assigned_by, {
+        type: 'task_completed', entityType: 'task', entityId: req.params.id,
+        title: 'Task completed',
+        body:  `"${task.title}" was completed by ${req.user.name}`,
+      });
+    }
     res.json(rows[0]);
   } catch (err) {
     console.error(err);
@@ -202,6 +216,15 @@ router.post('/:id/comments', async (req, res) => {
       [req.params.id, req.user.id, req.user.name, req.user.role, comment.trim()]
     );
     const [rows] = await pool.query('SELECT * FROM task_comments WHERE task_id = ? ORDER BY created_at ASC', [req.params.id]);
+    // Notify the other participant (assignee or assigner, not the commenter)
+    const otherUserId = req.user.id === tasks[0].assigned_to ? tasks[0].assigned_by : tasks[0].assigned_to;
+    if (otherUserId && otherUserId !== req.user.id) {
+      await notify(otherUserId, {
+        type: 'task_comment', entityType: 'task', entityId: req.params.id,
+        title: 'New comment on a task',
+        body:  `${req.user.name} commented on "${tasks[0].title}"`,
+      });
+    }
     res.status(201).json(rows);
   } catch (err) {
     console.error(err);
