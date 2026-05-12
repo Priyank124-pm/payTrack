@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Icon, Avatar, fmt, pct, ProgressBar, EmptyState, Spinner, StatusBadge, MONTHS, YEARS, CURRENT_MONTH, CURRENT_YEAR, todayStr } from '../components/UI';
 import { COMMISSION_PORTALS, PORTALS, calcNet } from '../hooks/useData';
-import { projectsAPI, milestonesAPI } from '../api';
 import { useAuth } from '../context/AuthContext';
 
 // ── KEY FIX: MilestoneFields is declared OUTSIDE MonthlyProjections.
@@ -103,135 +102,6 @@ function MilestoneFields({ vals, onChange, portal, onSave, onCancel, saving, isE
   );
 }
 
-// Read-only lookup — lets PMs search any project (including other PMs') and see its monthly projection
-function LookupSection({ month, year }) {
-  const [query,         setQuery]         = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [picked,        setPicked]        = useState(null);
-  const [pickedRows,    setPickedRows]    = useState([]);
-  const [searching,     setSearching]     = useState(false);
-
-  useEffect(() => {
-    if (!query.trim()) { setSearchResults([]); return; }
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const results = await projectsAPI.lookup(query);
-        if (!cancelled) setSearchResults(results);
-      } catch (_) {}
-      finally { if (!cancelled) setSearching(false); }
-    }, 300);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [query]);
-
-  useEffect(() => {
-    if (!picked) { setPickedRows([]); return; }
-    milestonesAPI.lookup({ project_id: picked.id, month, year })
-      .then(rows => setPickedRows(rows))
-      .catch(() => setPickedRows([]));
-  }, [picked, month, year]);
-
-  const pickedNetT = pickedRows.reduce((s, m) => s + calcNet(parseFloat(m.amount)  || 0, picked?.portal), 0);
-  const pickedNetA = pickedRows.reduce((s, m) => s + calcNet(parseFloat(m.achieved) || 0, picked?.portal), 0);
-
-  return (
-    <div style={{ marginTop: 28 }}>
-      <div className="divider" style={{ marginBottom: 18 }} />
-      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, color: 'var(--text2)' }}>
-        🔍 Look up any project
-        <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--text4)', marginLeft: 8 }}>Read-only · summary view</span>
-      </div>
-      <div style={{ position: 'relative', maxWidth: 360 }}>
-        <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)', display: 'flex', pointerEvents: 'none' }}>
-          <Icon name="search" size={13} />
-        </span>
-        <input
-          className="form-control form-control-sm"
-          style={{ paddingLeft: 30 }}
-          placeholder="Search any project or client…"
-          value={query}
-          onChange={e => { setQuery(e.target.value); setPicked(null); }}
-        />
-        {searching && (
-          <span style={{ position: 'absolute', right: 9, top: '50%', transform: 'translateY(-50%)', display: 'flex' }}>
-            <Spinner />
-          </span>
-        )}
-      </div>
-
-      {searchResults.length > 0 && !picked && (
-        <div style={{ maxWidth: 360, border: '1px solid var(--border1)', borderRadius: 8, marginTop: 4, background: 'var(--surface)', boxShadow: '0 4px 12px rgba(0,0,0,.08)', zIndex: 20, position: 'relative' }}>
-          {searchResults.map(p => (
-            <div key={p.id} onClick={() => { setPicked(p); setQuery(p.name); }}
-              style={{ padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border1)', fontSize: 13 }}
-              onMouseOver={e => e.currentTarget.style.background = 'var(--bg2)'}
-              onMouseOut={e => e.currentTarget.style.background = ''}
-            >
-              <span style={{ fontWeight: 600 }}>{p.name}</span>
-              <span style={{ color: 'var(--text3)', marginLeft: 8, fontSize: 12 }}>{p.client} · {p.portal}</span>
-              <div style={{ fontSize: 11, color: 'var(--text4)', marginTop: 2 }}>
-                PM: {p.manager_name}{p.coordinator_name ? ` · PC: ${p.coordinator_name}` : ''}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {picked && (
-        <div className="card" style={{ marginTop: 12, borderLeft: '3px solid var(--primary)' }}>
-          <div className="card-header" style={{ background: 'var(--bg2)' }}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 15 }}>{picked.name}</div>
-              <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <span className="tag">{picked.type}</span>
-                <span className="tag">{picked.portal}</span>
-                <span>PM: {picked.manager_name}</span>
-                {picked.coordinator_name && <span>· PC: {picked.coordinator_name}</span>}
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-              {pickedRows.length > 0 && (
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 2 }}>Net Target / Achieved</div>
-                  <div className="mono" style={{ fontSize: 13 }}>
-                    <span style={{ fontWeight: 600 }}>{fmt(pickedNetT)}</span>
-                    <span style={{ color: 'var(--border2)', margin: '0 5px' }}>/</span>
-                    <span style={{ color: 'var(--success)', fontWeight: 700 }}>{fmt(pickedNetA)}</span>
-                  </div>
-                </div>
-              )}
-              <button className="btn btn-ghost btn-sm btn-icon" onClick={() => { setPicked(null); setQuery(''); }}>
-                <Icon name="close" size={12} />
-              </button>
-            </div>
-          </div>
-          <div style={{ padding: '12px 18px' }}>
-            {pickedRows.length === 0
-              ? <div style={{ color: 'var(--text4)', fontSize: 12, fontStyle: 'italic' }}>No milestones for {MONTHS[month - 1]?.label} {year}.</div>
-              : pickedRows.map(m => {
-                const net = calcNet(parseFloat(m.amount) || 0, picked.portal);
-                const td  = m.target_date ? String(m.target_date).slice(0, 10) : null;
-                return (
-                  <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border1)' }}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{m.label}</div>
-                      {td && <div className="mono text-muted" style={{ fontSize: 11, marginTop: 2 }}>{td}</div>}
-                    </div>
-                    <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                      <span className="mono" style={{ fontSize: 12, color: 'var(--text2)' }}>{fmt(net)}</span>
-                      <StatusBadge status={m.status} />
-                    </div>
-                  </div>
-                );
-              })
-            }
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function MonthlyProjections({ projects, milestones, profiles, onAdd, onUpdate, onDelete }) {
   const { user: me, isAdmin, effectiveManagerId } = useAuth();
@@ -588,12 +458,8 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
         );
       })}
 
-      {/* ── PM: Look up any project across all PMs (read-only) ───── */}
-      {!isAdmin && (
-        <LookupSection month={month} year={year} />
-      )}
 
-      </div>} {/* end projections tab */}
+</div>} {/* end projections tab */}
 
       {/* ── Pending Payments Tab ─────────────────────────────────── */}
       {activeTab === 'pending' && (() => {
