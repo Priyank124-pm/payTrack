@@ -347,7 +347,7 @@ export default function Projects({
                         {!pr.all_payments_received && <button className="btn btn-xs btn-success" onClick={()=>{if(window.confirm('Mark all payments received? Project will hide from projections.'))onMarkReceived(pr.id)}}>✓ Done</button>}
                         {pr.all_payments_received  && <button className="btn btn-xs btn-outline"  onClick={()=>openCR(pr.id)}><Icon name="cr" size={11}/>CR</button>}
                         <button className="btn btn-sm btn-ghost btn-icon" onClick={()=>openEdit(pr)}><Icon name="edit" size={13}/></button>
-                        {isAdmin && <button className="btn btn-sm btn-ghost btn-icon" title="Archive" onClick={()=>handleArchive(pr.id)}><Icon name="archive" size={13}/></button>}
+                        <button className="btn btn-sm btn-ghost btn-icon" title="Archive" onClick={()=>handleArchive(pr.id)}><Icon name="archive" size={13}/></button>
                         {isSuperAdmin && <button className="btn btn-sm btn-danger btn-icon" onClick={()=>{if(window.confirm('Delete project and all its data?'))onDelete(pr.id)}}><Icon name="delete" size={13}/></button>}
                       </div>
                     </td>
