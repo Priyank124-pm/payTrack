@@ -218,12 +218,16 @@ router.post('/bulk-delete', isSuperAdmin, async (req, res) => {
 });
 
 // ── PATCH /api/projects/:id/archive ───────────────────────────
-router.patch('/:id/archive', isAdmin, async (req, res) => {
+router.patch('/:id/archive', async (req, res) => {
   try {
-    const [pr] = await pool.query('SELECT name FROM projects WHERE id = ?', [req.params.id]);
-    const [r]  = await pool.query('UPDATE projects SET archived = 1 WHERE id = ?', [req.params.id]);
-    if (!r.affectedRows) return res.status(404).json({ error: 'Project not found' });
-    await logActivity({ user: req.user, action: 'archive', entity: 'project', entityId: req.params.id, detail: `Archived project '${pr[0]?.name}'` });
+    const [pr] = await pool.query('SELECT name, manager_id FROM projects WHERE id = ?', [req.params.id]);
+    if (!pr.length) return res.status(404).json({ error: 'Project not found' });
+    const managerId = getEffectiveManagerId(req.user);
+    if (managerId && pr[0].manager_id !== managerId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    await pool.query('UPDATE projects SET archived = 1 WHERE id = ?', [req.params.id]);
+    await logActivity({ user: req.user, action: 'archive', entity: 'project', entityId: req.params.id, detail: `Archived project '${pr[0].name}'` });
     res.json({ message: 'Project archived' });
   } catch (err) {
     console.error(err);
