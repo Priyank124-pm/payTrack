@@ -10,6 +10,7 @@ import Reports from './pages/Reports';
 import LastPayments from './pages/LastPayments';
 import ActivityLogs from './pages/ActivityLogs';
 import Tasks from './pages/Tasks';
+import ProjectLookup from './pages/ProjectLookup';
 import { Icon, Modal, Spinner, avatarColor } from './components/UI';
 import { authAPI, notificationsAPI } from './api';
 import './styles/global.css';
@@ -271,7 +272,8 @@ function AppShell() {
     { id: 'dashboard',   icon: 'dashboard',  label: 'Dashboard' },
     ...(isAdmin ? [{ id: 'users', icon: 'users', label: 'User Management' }] : []),
     { id: 'projects',    icon: 'projects',   label: 'Projects' },
-    { id: 'projections',  icon: 'projection', label: 'Monthly Projections' },
+    { id: 'projections',   icon: 'projection', label: 'Monthly Projections' },
+    ...(!isAdmin ? [{ id: 'projectlookup', icon: 'search', label: 'Project Lookup' }] : []),
     { id: 'lastpayments', icon: 'clock',      label: 'Last Payments' },
     { id: 'reports',      icon: 'report',     label: 'Reports' },
     { id: 'tasks',        icon: 'check',      label: 'Tasks' },
@@ -281,6 +283,7 @@ function AppShell() {
   const titles = {
     dashboard: 'Dashboard', users: 'User Management',
     projects: 'Projects', projections: 'Monthly Projections',
+    projectlookup: 'Project Lookup',
     lastpayments: 'Last Payments', reports: 'Reports',
     tasks: 'Tasks', activitylogs: 'Activity Logs',
   };
@@ -307,6 +310,7 @@ function AppShell() {
           onAdd={addMilestone} onUpdate={updateMilestone} onDelete={deleteMilestone}
         />
       );
+      case 'projectlookup': return <ProjectLookup />;
       case 'lastpayments':return <LastPayments projects={projects} milestones={milestones} profiles={profiles} />;
       case 'reports':     return <Reports projects={projects} profiles={profiles} />;
       case 'tasks':        return <Tasks profiles={profiles} />;
