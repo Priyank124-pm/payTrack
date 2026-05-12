@@ -48,6 +48,30 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ── GET /api/projects/lookup?q= ───────────────────────────────
+// Read-only cross-PM search — all authenticated users can find any active project
+router.get('/lookup', async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    if (!q) return res.json([]);
+    const [rows] = await pool.query(
+      `SELECT p.id, p.name, p.client, p.portal, p.type,
+              u.id AS manager_id,  u.name AS manager_name,
+              c.id AS coordinator_id, c.name AS coordinator_name
+       FROM projects p
+       LEFT JOIN users u ON u.id = p.manager_id
+       LEFT JOIN users c ON c.id = p.coordinator_id
+       WHERE p.archived = 0 AND (p.name LIKE ? OR p.client LIKE ?)
+       ORDER BY p.name ASC LIMIT 10`,
+      [`%${q}%`, `%${q}%`]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ── GET /api/projects/:id ──────────────────────────────────────
 router.get('/:id', async (req, res) => {
   try {
