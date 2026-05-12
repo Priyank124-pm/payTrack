@@ -65,6 +65,24 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ── GET /api/milestones/lookup?project_id=&month=&year= ─────────
+// Read-only milestone fetch for any project — all authenticated users
+router.get('/lookup', async (req, res) => {
+  try {
+    if (!req.query.project_id) return res.json([]);
+    const params = [req.query.project_id];
+    let sql = 'SELECT * FROM milestones WHERE project_id = ?';
+    if (req.query.month) { sql += ' AND month = ?';  params.push(parseInt(req.query.month)); }
+    if (req.query.year)  { sql += ' AND year = ?';   params.push(parseInt(req.query.year)); }
+    sql += ' ORDER BY target_date ASC, created_at ASC';
+    const [rows] = await pool.query(sql, params);
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ── POST /api/milestones ───────────────────────────────────────
 router.post('/',
   [
