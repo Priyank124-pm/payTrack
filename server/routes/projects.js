@@ -342,6 +342,41 @@ router.patch('/:id/mark-received', async (req, res) => {
   }
 });
 
+// ── GET /api/projects/:id/comments ────────────────────────────
+router.get('/:id/comments', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT * FROM project_comments WHERE project_id = ? ORDER BY created_at ASC',
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── POST /api/projects/:id/comments ───────────────────────────
+router.post('/:id/comments', async (req, res) => {
+  const { comment } = req.body;
+  if (!comment?.trim()) return res.status(400).json({ error: 'Comment is required' });
+  try {
+    await pool.query(
+      `INSERT INTO project_comments (id, project_id, user_id, user_name, user_role, comment)
+       VALUES (UUID(), ?, ?, ?, ?, ?)`,
+      [req.params.id, req.user.id, req.user.name, req.user.role, comment.trim()]
+    );
+    const [rows] = await pool.query(
+      'SELECT * FROM project_comments WHERE project_id = ? ORDER BY created_at ASC',
+      [req.params.id]
+    );
+    res.status(201).json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ── DELETE /api/projects/:id ───────────────────────────────────
 router.delete('/:id', isAdmin, async (req, res) => {
   try {

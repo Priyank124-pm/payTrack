@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Icon, Avatar, fmt, pct, ProgressBar, EmptyState, Spinner, StatusBadge, MONTHS, YEARS, CURRENT_MONTH, CURRENT_YEAR, todayStr } from '../components/UI';
 import { COMMISSION_PORTALS, PORTALS, calcNet } from '../hooks/useData';
+import { milestonesAPI } from '../api';
 import { useAuth } from '../context/AuthContext';
 
 // ── KEY FIX: MilestoneFields is declared OUTSIDE MonthlyProjections.
@@ -119,6 +120,10 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
   const [error,    setError]    = useState('');
   const [pendPortal, setPendPortal] = useState('all');
   const [pendPM,     setPendPM]     = useState('all');
+  const [commentingOn,  setCommentingOn]  = useState(null); // milestone id
+  const [commentsCache, setCommentsCache] = useState({});   // { [milestoneId]: [...] }
+  const [commentText,   setCommentText]   = useState('');
+  const [commentSaving, setCommentSaving] = useState(false);
 
   const pms            = profiles.filter(u => u.role === 'project_manager');
   const coordinators   = profiles.filter(u => u.role === 'coordinator');
@@ -196,6 +201,29 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
   const handleDelete = async id => {
     if (!window.confirm('Delete this milestone?')) return;
     await onDelete(id);
+  };
+
+  const openComments = async (mid) => {
+    if (commentingOn === mid) { setCommentingOn(null); setCommentText(''); return; }
+    setCommentingOn(mid);
+    setCommentText('');
+    if (!commentsCache[mid]) {
+      try {
+        const list = await milestonesAPI.getComments(mid);
+        setCommentsCache(prev => ({ ...prev, [mid]: list }));
+      } catch (_) {}
+    }
+  };
+
+  const submitComment = async (mid) => {
+    if (!commentText.trim()) return;
+    setCommentSaving(true);
+    try {
+      const list = await milestonesAPI.addComment(mid, commentText.trim());
+      setCommentsCache(prev => ({ ...prev, [mid]: list }));
+      setCommentText('');
+    } catch (e) { setError(e.message); }
+    finally { setCommentSaving(false); }
   };
 
   return (
@@ -390,6 +418,7 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
                         isEdit
                       />
                     ) : (
+                      <>
                       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
                         <div style={{ display: 'flex', gap: 18, flex: 1, flexWrap: 'wrap' }}>
                           <div style={{ minWidth: 120 }}>
@@ -415,8 +444,49 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
                         <div style={{ display: 'flex', gap: 5 }}>
                           <button className="btn btn-sm btn-ghost btn-icon" onClick={() => startEdit(m)}><Icon name="edit" size={12} /></button>
                           <button className="btn btn-sm btn-danger btn-icon" onClick={() => handleDelete(m.id)}><Icon name="delete" size={12} /></button>
+                          <button
+                            className={`btn btn-sm btn-icon${commentingOn === m.id ? ' btn-primary' : ' btn-ghost'}`}
+                            title="Comments"
+                            onClick={() => openComments(m.id)}
+                          >
+                            <Icon name="comment" size={12} />
+                            {(commentsCache[m.id]?.length > 0) && (
+                              <span style={{ fontSize: 9, fontWeight: 700, marginLeft: 2 }}>{commentsCache[m.id].length}</span>
+                            )}
+                          </button>
                         </div>
                       </div>
+                      {commentingOn === m.id && (
+                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border1)' }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>Comments</div>
+                          {(commentsCache[m.id] || []).length === 0 && (
+                            <div style={{ color: 'var(--text4)', fontSize: 12, fontStyle: 'italic', marginBottom: 8 }}>No comments yet.</div>
+                          )}
+                          {(commentsCache[m.id] || []).map(c => (
+                            <div key={c.id} style={{ marginBottom: 8, padding: '8px 10px', background: 'var(--bg2)', borderRadius: 6 }}>
+                              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 3 }}>
+                                <strong>{c.user_name}</strong> · <span style={{ textTransform: 'capitalize' }}>{c.user_role.replace(/_/g, ' ')}</span>
+                                <span style={{ marginLeft: 6, color: 'var(--text4)' }}>{new Date(c.created_at).toLocaleString()}</span>
+                              </div>
+                              <div style={{ fontSize: 13 }}>{c.comment}</div>
+                            </div>
+                          ))}
+                          <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                            <input
+                              className="form-control form-control-sm"
+                              style={{ flex: 1 }}
+                              placeholder="Add a comment…"
+                              value={commentText}
+                              onChange={e => setCommentText(e.target.value)}
+                              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && submitComment(m.id)}
+                            />
+                            <button className="btn btn-sm btn-primary btn-icon" onClick={() => submitComment(m.id)} disabled={commentSaving || !commentText.trim()}>
+                              {commentSaving ? <Spinner /> : <Icon name="send" size={12} />}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      </>
                     )}
                   </div>
                 );

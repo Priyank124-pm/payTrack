@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Modal, Icon, Avatar, fmt, pct, ProgressBar, EmptyState, Spinner } from '../components/UI';
 import { useAuth } from '../context/AuthContext';
 import { PORTALS, COMMISSION_PORTALS, calcNet } from '../hooks/useData';
+import { projectsAPI } from '../api';
 
 const TYPES = ['Monthly','Hourly','Milestone'];
 
@@ -106,6 +107,11 @@ export default function Projects({
   const [csvError,     setCsvError]     = useState('');
   const [csvImporting, setCsvImporting] = useState(false);
   const [csvResult,    setCsvResult]    = useState(null);
+  const [commentModal,       setCommentModal]       = useState(null); // { project, comments }
+  const [commentText,        setCommentText]        = useState('');
+  const [commentLoading,     setCommentLoading]     = useState(false);
+  const [commentSaving,      setCommentSaving]      = useState(false);
+
   const setF  = (k,v) => setForm(p=>({...p,[k]:v}));
   const setCRF = (k,v)=> setCRForm(p=>({...p,[k]:v}));
 
@@ -140,6 +146,32 @@ export default function Projects({
     setSelected(new Set());
   };
 
+  const handleQuickStatus = async (id, status) => {
+    try { await onUpdate(id, { status }); } catch (e) { setError(e.message); }
+  };
+
+  const openProjectComments = async (pr) => {
+    setCommentModal({ project: pr, comments: [] });
+    setCommentText('');
+    setCommentLoading(true);
+    try {
+      const comments = await projectsAPI.getComments(pr.id);
+      setCommentModal(prev => prev ? { ...prev, comments } : null);
+    } catch (_) {}
+    finally { setCommentLoading(false); }
+  };
+
+  const addProjectComment = async () => {
+    if (!commentText.trim() || !commentModal) return;
+    setCommentSaving(true);
+    try {
+      const comments = await projectsAPI.addComment(commentModal.project.id, commentText.trim());
+      setCommentModal(prev => prev ? { ...prev, comments } : null);
+      setCommentText('');
+    } catch (e) { setError(e.message); }
+    finally { setCommentSaving(false); }
+  };
+
   const handleCsvFile = e => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -170,12 +202,14 @@ export default function Projects({
 
   const pms = profiles.filter(u=>u.role==='project_manager');
   const allMyProjects = isAdmin ? projects : projects.filter(p=>p.manager_id===effectiveManagerId);
-  const myProjects = searchQuery
+  const allFiltered = searchQuery
     ? allMyProjects.filter(p => {
         const q = searchQuery.toLowerCase();
         return p.name.toLowerCase().includes(q) || p.client.toLowerCase().includes(q);
       })
     : allMyProjects;
+  const myProjects        = allFiltered.filter(p => p.status !== 'maintenance' && p.status !== 'server');
+  const serverMaintProjects = allFiltered.filter(p => p.status === 'maintenance' || p.status === 'server');
   const filteredArchived = searchQuery
     ? archivedProjects.filter(p => {
         const q = searchQuery.toLowerCase();
@@ -190,7 +224,7 @@ export default function Projects({
 
   const openAdd = () => {
     const defPM = me?.role==='project_manager'?me.id:me?.role==='coordinator'?me.manager_id:pms[0]?.id||'';
-    setForm({ name:'',client:'',type:'Monthly',portal:'Upwork',manager_id:defPM,coordinator_id:'',target_payment:'' });
+    setForm({ name:'',client:'',type:'Monthly',portal:'Upwork',manager_id:defPM,coordinator_id:'',target_payment:'',status:'active' });
     setError(''); setModal('add');
   };
   const openEdit = pr => { setForm({...pr, coordinator_id: pr.coordinator_id||''}); setError(''); setModal('edit'); };
@@ -199,8 +233,8 @@ export default function Projects({
     if (!form.name||!form.client) return setError('Name and client required.');
     setSaving(true); setError('');
     try {
-      if (modal==='add') await onAdd(form);
-      else await onUpdate(form.id,{name:form.name,client:form.client,type:form.type,portal:form.portal,manager_id:form.manager_id,coordinator_id:form.coordinator_id||null,target_payment:parseFloat(form.target_payment)||0});
+      if (modal==='add') await onAdd({ ...form, status: form.status || 'active' });
+      else await onUpdate(form.id,{name:form.name,client:form.client,type:form.type,portal:form.portal,manager_id:form.manager_id,coordinator_id:form.coordinator_id||null,target_payment:parseFloat(form.target_payment)||0,status:form.status||'active'});
       setModal(null);
     } catch(e){setError(e.message);}
     finally{setSaving(false);}
@@ -226,7 +260,7 @@ export default function Projects({
         <div>
           <div className="page-title">Projects</div>
           <div className="text-muted" style={{ marginTop:3 }}>
-            {activeTab==='active' ? myProjects.length : filteredArchived.length} projects
+            {activeTab==='active' ? myProjects.length : activeTab==='server' ? serverMaintProjects.length : filteredArchived.length} projects
           </div>
         </div>
         <div style={{ display:'flex', gap:8, alignItems:'flex-end', flexWrap:'wrap' }}>
@@ -260,11 +294,14 @@ export default function Projects({
           <button style={TAB_STYLE(activeTab==='archived')} onClick={() => handleTabChange('archived')}>
             <Icon name="archive" size={13} /> Archived ({filteredArchived.length})
           </button>
+          <button style={TAB_STYLE(activeTab==='server')} onClick={() => handleTabChange('server')}>
+            Server &amp; Maintenance ({serverMaintProjects.length})
+          </button>
         </div>
       )}
 
       {/* ── Info / warnings (active tab only) ────────────────── */}
-      {activeTab==='active' && <>
+      {(activeTab==='active'||activeTab==='server') && <>
         <div className="info-box mb-4" style={{ marginBottom:12 }}>
           <Icon name="info" size={13} />
           <span>Achieved payments are auto-calculated from <strong>Monthly Projections</strong>. Mark a project "Done" once all payments are received — it hides from projections until a Change Request is added.</span>
@@ -339,7 +376,7 @@ export default function Projects({
                     <td>
                       {pr.all_payments_received
                         ? <span className="badge badge-green">✓ Done</span>
-                        : <span className={`badge badge-${pr.status==='on_hold'?'yellow':'indigo'}`}>{pr.status}</span>
+                        : <span className={`badge badge-${pr.status==='on_hold'?'yellow':pr.status==='maintenance'?'blue':pr.status==='server'?'purple':'indigo'}`}>{pr.status}</span>
                       }
                     </td>
                     <td style={{ textAlign:'right' }}>
@@ -347,6 +384,13 @@ export default function Projects({
                         {!pr.all_payments_received && <button className="btn btn-xs btn-success" onClick={()=>{if(window.confirm('Mark all payments received? Project will hide from projections.'))onMarkReceived(pr.id)}}>✓ Done</button>}
                         {pr.all_payments_received  && <button className="btn btn-xs btn-outline"  onClick={()=>openCR(pr.id)}><Icon name="cr" size={11}/>CR</button>}
                         <button className="btn btn-sm btn-ghost btn-icon" onClick={()=>openEdit(pr)}><Icon name="edit" size={13}/></button>
+                        <button
+                          className="btn btn-sm btn-ghost btn-icon"
+                          title="Move to Server & Maintenance"
+                          onClick={() => handleQuickStatus(pr.id, 'maintenance')}
+                        >
+                          <Icon name="settings" size={13}/>
+                        </button>
                         <button className="btn btn-sm btn-ghost btn-icon" title="Archive" onClick={()=>handleArchive(pr.id)}><Icon name="archive" size={13}/></button>
                         {isSuperAdmin && <button className="btn btn-sm btn-danger btn-icon" onClick={()=>{if(window.confirm('Delete project and all its data?'))onDelete(pr.id)}}><Icon name="delete" size={13}/></button>}
                       </div>
@@ -387,10 +431,58 @@ export default function Projects({
                     <td className="mono" style={{fontSize:12}}>{fmt(pr.target_payment)}</td>
                     <td style={{textAlign:'right'}}>
                       <div style={{display:'flex',gap:4,justifyContent:'flex-end'}}>
+                        <button className="btn btn-sm btn-ghost btn-icon" title="Comments" onClick={()=>openProjectComments(pr)}><Icon name="comment" size={13}/></button>
                         <button className="btn btn-xs btn-outline" onClick={()=>handleRestore(pr.id)}>
                           <Icon name="restore" size={11}/>Restore
                         </button>
                         {isSuperAdmin && <button className="btn btn-sm btn-danger btn-icon" onClick={()=>{if(window.confirm('Permanently delete this project and all its data?'))onDelete(pr.id)}}><Icon name="delete" size={13}/></button>}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table></div>
+        </div>
+      )}
+
+      {/* ══ SERVER & MAINTENANCE TAB ════════════════════════════ */}
+      {activeTab==='server' && (
+        <div className="card">
+          <div className="table-wrap"><table>
+            <thead><tr>
+              <th>Project</th><th>Client</th><th>Type</th><th>Portal</th>
+              {isAdmin && <th>PM</th>}
+              {isAdmin && <th>Coordinator</th>}
+              <th>Status</th><th>Target</th><th style={{ textAlign:'right' }}>Actions</th>
+            </tr></thead>
+            <tbody>
+              {serverMaintProjects.length===0 && <tr><td colSpan={10}><EmptyState icon="🖥️" message="No projects in Server or Maintenance" /></td></tr>}
+              {serverMaintProjects.map(pr => {
+                const pm = pms.find(u=>u.id===pr.manager_id);
+                return (
+                  <tr key={pr.id}>
+                    <td style={{ fontWeight:700 }}>{pr.name}</td>
+                    <td style={{ color:'var(--text2)' }}>{pr.client}</td>
+                    <td><span className="tag">{pr.type}</span></td>
+                    <td><span className="tag">{pr.portal}</span></td>
+                    {isAdmin && <td style={{ fontSize:12 }}>{pm?.name||'—'}</td>}
+                    {isAdmin && <td style={{ fontSize:12, color:'var(--text2)' }}>{pr.coordinator_name||'—'}</td>}
+                    <td>
+                      <span className={`badge ${pr.status==='maintenance'?'badge-blue':'badge-purple'}`}>{pr.status}</span>
+                    </td>
+                    <td className="mono" style={{ fontSize:12 }}>{fmt(pr.target_payment)}</td>
+                    <td style={{ textAlign:'right' }}>
+                      <div style={{ display:'flex', gap:4, justifyContent:'flex-end' }}>
+                        <button className="btn btn-sm btn-ghost btn-icon" title="Comments" onClick={()=>openProjectComments(pr)}><Icon name="comment" size={13}/></button>
+                        <button
+                          className="btn btn-xs btn-outline"
+                          title="Move back to Active"
+                          onClick={() => { if (window.confirm('Move this project back to Active?')) handleQuickStatus(pr.id, 'active'); }}
+                        >→ Active</button>
+                        <button className="btn btn-sm btn-ghost btn-icon" title="Edit" onClick={()=>openEdit(pr)}><Icon name="edit" size={13}/></button>
+                        <button className="btn btn-sm btn-ghost btn-icon" title="Archive" onClick={()=>handleArchive(pr.id)}><Icon name="archive" size={13}/></button>
+                        {isSuperAdmin && <button className="btn btn-sm btn-danger btn-icon" onClick={()=>{if(window.confirm('Delete project and all its data?'))onDelete(pr.id)}}><Icon name="delete" size={13}/></button>}
                       </div>
                     </td>
                   </tr>
@@ -459,8 +551,53 @@ export default function Projects({
                 {coordinators.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
               </select></div>
             <div className="form-group"><label className="form-label">Target Payment ($) <span style={{fontWeight:400,color:'var(--text4)'}}>— optional</span></label><input className="form-control" type="number" min="0" value={form.target_payment||''} onChange={e=>setF('target_payment',e.target.value)} placeholder="Leave blank if unknown"/></div>
+            <div className="form-group"><label className="form-label">Status</label>
+              <select className="form-control" value={form.status||'active'} onChange={e=>setF('status',e.target.value)}>
+                <option value="active">Active</option>
+                <option value="on_hold">On Hold</option>
+                <option value="maintenance">Maintenance</option>
+                <option value="server">Server</option>
+              </select>
+            </div>
           </div>
           <div className="info-box mt-3" style={{ marginTop:12 }}><Icon name="info" size={13}/>Milestones are managed in <strong>Monthly Projections</strong>.</div>
+        </Modal>
+      )}
+
+      {/* Project Comments Modal */}
+      {commentModal && (
+        <Modal
+          title={`Comments — ${commentModal.project.name}`}
+          onClose={() => setCommentModal(null)}
+          footer={<button className="btn btn-ghost" onClick={() => setCommentModal(null)}>Close</button>}
+        >
+          {commentLoading && <div style={{ textAlign:'center', padding:20 }}><Spinner /></div>}
+          {!commentLoading && commentModal.comments.length === 0 && (
+            <div style={{ color:'var(--text4)', fontSize:13, fontStyle:'italic', marginBottom:12 }}>No comments yet.</div>
+          )}
+          {!commentLoading && commentModal.comments.map(c => (
+            <div key={c.id} style={{ marginBottom:10, padding:'10px 12px', background:'var(--bg2)', borderRadius:8 }}>
+              <div style={{ fontSize:11, color:'var(--text3)', marginBottom:4 }}>
+                <strong>{c.user_name}</strong>
+                <span style={{ marginLeft:6, textTransform:'capitalize' }}>{c.user_role.replace(/_/g,' ')}</span>
+                <span style={{ marginLeft:8, color:'var(--text4)' }}>{new Date(c.created_at).toLocaleString()}</span>
+              </div>
+              <div style={{ fontSize:13 }}>{c.comment}</div>
+            </div>
+          ))}
+          <div style={{ display:'flex', gap:8, marginTop:14, borderTop:'1px solid var(--border1)', paddingTop:12 }}>
+            <textarea
+              className="form-control"
+              rows={2}
+              style={{ flex:1, resize:'vertical' }}
+              placeholder="Add a comment…"
+              value={commentText}
+              onChange={e => setCommentText(e.target.value)}
+            />
+            <button className="btn btn-primary" style={{ alignSelf:'flex-end' }} onClick={addProjectComment} disabled={commentSaving || !commentText.trim()}>
+              {commentSaving ? <Spinner /> : <><Icon name="send" size={13}/>Add</>}
+            </button>
+          </div>
         </Modal>
       )}
 
