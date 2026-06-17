@@ -54,6 +54,8 @@ export const projectsAPI = {
   list:         (params={})=> { const qs=new URLSearchParams(params).toString(); return get(`/api/projects${qs?'?'+qs:''}`); },
   lookup:       (q)        => get(`/api/projects/lookup?q=${encodeURIComponent(q)}`),
   get:          (id)       => get(`/api/projects/${id}`),
+  getComments:  (id)       => get(`/api/projects/${id}/comments`),
+  addComment:   (id, comment) => post(`/api/projects/${id}/comments`, { comment }),
   create:       (body)     => post('/api/projects', body),
   update:       (id, body) => patch(`/api/projects/${id}`, body),
   markReceived: (id)       => patch(`/api/projects/${id}/mark-received`),
@@ -66,14 +68,16 @@ export const projectsAPI = {
 
 // ── Milestones ─────────────────────────────────────────────────
 export const milestonesAPI = {
-  list:   (params = {}) => {
+  list:        (params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return get(`/api/milestones${qs ? '?' + qs : ''}`);
   },
-  lookup: (params = {}) => { const qs = new URLSearchParams(params).toString(); return get(`/api/milestones/lookup${qs ? '?' + qs : ''}`); },
-  create: (body)        => post('/api/milestones', body),
-  update: (id, body)    => patch(`/api/milestones/${id}`, body),
-  remove: (id)          => del(`/api/milestones/${id}`),
+  lookup:      (params = {}) => { const qs = new URLSearchParams(params).toString(); return get(`/api/milestones/lookup${qs ? '?' + qs : ''}`); },
+  create:      (body)        => post('/api/milestones', body),
+  update:      (id, body)    => patch(`/api/milestones/${id}`, body),
+  remove:      (id)          => del(`/api/milestones/${id}`),
+  getComments: (id)          => get(`/api/milestones/${id}/comments`),
+  addComment:  (id, comment) => post(`/api/milestones/${id}/comments`, { comment }),
 };
 
 // ── Change Requests ────────────────────────────────────────────

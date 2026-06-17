@@ -129,6 +129,32 @@ CREATE TABLE IF NOT EXISTS task_comments (
   INDEX idx_task_comments_task (task_id)
 );
 
+-- Milestone Comments
+CREATE TABLE IF NOT EXISTS milestone_comments (
+  id           CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+  milestone_id CHAR(36)     NOT NULL,
+  user_id      CHAR(36)     DEFAULT NULL,
+  user_name    VARCHAR(120) NOT NULL,
+  user_role    VARCHAR(50)  NOT NULL,
+  comment      TEXT         NOT NULL,
+  created_at   DATETIME     DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_mc_milestone FOREIGN KEY (milestone_id) REFERENCES milestones(id) ON DELETE CASCADE,
+  INDEX idx_mc_milestone (milestone_id)
+);
+
+-- Project Comments
+CREATE TABLE IF NOT EXISTS project_comments (
+  id         CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+  project_id CHAR(36)     NOT NULL,
+  user_id    CHAR(36)     DEFAULT NULL,
+  user_name  VARCHAR(120) NOT NULL,
+  user_role  VARCHAR(50)  NOT NULL,
+  comment    TEXT         NOT NULL,
+  created_at DATETIME     DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_pc_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  INDEX idx_pc_project (project_id)
+);
+
 -- Change Requests
 CREATE TABLE IF NOT EXISTS change_requests (
   id          CHAR(36)      PRIMARY KEY DEFAULT (UUID()),
@@ -246,6 +272,37 @@ async function initDB() {
         INDEX idx_task_comments_task (task_id)
       )
     `);
+
+    // Extend project status ENUM with maintenance and server
+    await migrate(`ALTER TABLE projects MODIFY COLUMN status ENUM('active','completed','on_hold','maintenance','server') NOT NULL DEFAULT 'active'`);
+
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS milestone_comments (
+        id           CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+        milestone_id CHAR(36)     NOT NULL,
+        user_id      CHAR(36)     DEFAULT NULL,
+        user_name    VARCHAR(120) NOT NULL,
+        user_role    VARCHAR(50)  NOT NULL,
+        comment      TEXT         NOT NULL,
+        created_at   DATETIME     DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_mc_milestone (milestone_id)
+      )
+    `);
+    await migrate(`ALTER TABLE milestone_comments ADD CONSTRAINT fk_mc_milestone FOREIGN KEY (milestone_id) REFERENCES milestones(id) ON DELETE CASCADE`);
+
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS project_comments (
+        id         CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+        project_id CHAR(36)     NOT NULL,
+        user_id    CHAR(36)     DEFAULT NULL,
+        user_name  VARCHAR(120) NOT NULL,
+        user_role  VARCHAR(50)  NOT NULL,
+        comment    TEXT         NOT NULL,
+        created_at DATETIME     DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_pc_project (project_id)
+      )
+    `);
+    await migrate(`ALTER TABLE project_comments ADD CONSTRAINT fk_pc_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE`);
 
     console.log('✅  Database schema initialised');
   } catch (err) {
