@@ -149,7 +149,8 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
   const allRows   = projRows.flatMap(p => p.rows);
   const gGross    = allRows.reduce((s, m) => s + (parseFloat(m.amount) || 0), 0);
   const gNet      = allRows.reduce((s, m) => { const pr = projects.find(p => p.id === m.project_id); return s + calcNet(parseFloat(m.amount) || 0, pr?.portal); }, 0);
-  const gAchieved = allRows.reduce((s, m) => { const pr = projects.find(p => p.id === m.project_id); return s + calcNet(parseFloat(m.achieved) || 0, pr?.portal); }, 0);
+  const gGrossAchieved = allRows.reduce((s, m) => s + (parseFloat(m.achieved) || 0), 0);
+  const gAchieved      = allRows.reduce((s, m) => { const pr = projects.find(p => p.id === m.project_id); return s + calcNet(parseFloat(m.achieved) || 0, pr?.portal); }, 0);
 
   // ── Pending Payments tab data ───────────────────────────────────
   const myProjectIds = new Set(visProjects.map(p => p.id).concat(
@@ -317,10 +318,11 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
               </div>
               <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
                 {[
-                  ['Commission',   fmt(gGross - gNet),            'var(--warning)'],
-                  ['Net Target',   fmt(gNet),                     'var(--text2)'],
-                  ['Net Achieved', fmt(gAchieved),                'var(--success)'],
-                  ['Rate',         pct(gAchieved, gNet) + '%',    'var(--primary)'],
+                  ['Gross Target',   fmt(gGross),                        'var(--text2)'],
+                  ['Gross Achieved', fmt(gGrossAchieved),                'var(--primary)'],
+                  ['Commission',     fmt(gGrossAchieved - gAchieved),    'var(--warning)'],
+                  ['Net Achieved',   fmt(gAchieved),                     'var(--success)'],
+                  ['Rate',           pct(gAchieved, gNet) + '%',         'var(--primary)'],
                 ].map(([l, v, c]) => (
                   <div key={l} style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: .8, marginBottom: 2 }}>{l}</div>

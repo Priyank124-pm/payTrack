@@ -273,8 +273,8 @@ async function initDB() {
       )
     `);
 
-    // Extend project status ENUM with maintenance and server
-    await migrate(`ALTER TABLE projects MODIFY COLUMN status ENUM('active','completed','on_hold','maintenance','server') NOT NULL DEFAULT 'active'`);
+    // Extend project status ENUM with maintenance, server, production
+    await migrate(`ALTER TABLE projects MODIFY COLUMN status ENUM('active','completed','on_hold','maintenance','server','production') NOT NULL DEFAULT 'active'`);
 
     await migrate(`
       CREATE TABLE IF NOT EXISTS milestone_comments (

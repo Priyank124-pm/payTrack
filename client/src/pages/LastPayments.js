@@ -24,11 +24,11 @@ export default function LastPayments({ projects, milestones, profiles }) {
 
   const pms = profiles.filter(u => u.role === 'project_manager');
 
-  const myProjects = isAdmin
-    ? projects
-    : projects.filter(p => p.manager_id === effectiveManagerId);
+  // Only active (non-archived, non-maintenance/server/production) projects
+  const activeProjects = (isAdmin ? projects : projects.filter(p => p.manager_id === effectiveManagerId))
+    .filter(p => !p.archived && p.status === 'active');
 
-  const visProjects = myProjects.filter(p => {
+  const visProjects = activeProjects.filter(p => {
     if (filterPM !== 'all' && p.manager_id !== filterPM) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -37,7 +37,7 @@ export default function LastPayments({ projects, milestones, profiles }) {
     return true;
   });
 
-  const rows = visProjects.map(pr => {
+  const allRows = visProjects.map(pr => {
     const allMs     = milestones.filter(m => m.project_id === pr.id);
     const paidMs    = allMs.filter(m => parseFloat(m.achieved) > 0);
     const sorted    = [...paidMs].sort((a, b) =>
@@ -48,16 +48,21 @@ export default function LastPayments({ projects, milestones, profiles }) {
     const totalNet  = calcNet(totalGross, pr.portal);
     const days      = last ? daysSince(last.year, last.month) : null;
     return { ...pr, last, totalGross, totalNet, days };
-  }).sort((a, b) => {
-    if (!a.last && !b.last) return 0;
-    if (!a.last) return 1;
-    if (!b.last) return -1;
-    if (a.last.year !== b.last.year) return b.last.year - a.last.year;
-    return b.last.month - a.last.month;
   });
 
-  const withPayment    = rows.filter(r => r.last);
-  const withoutPayment = rows.filter(r => !r.last);
+  // Only projects with NO payment in the last 30 days
+  const rows = allRows
+    .filter(r => r.days === null || r.days >= 30)
+    .sort((a, b) => {
+      // No payment ever → bottom; otherwise sort by most overdue first
+      if (a.days === null && b.days === null) return 0;
+      if (a.days === null) return 1;
+      if (b.days === null) return -1;
+      return b.days - a.days;
+    });
+
+  const withPayment    = rows.filter(r => r.last);   // last payment exists but > 30 days
+  const withoutPayment = rows.filter(r => !r.last);  // never received payment
 
   return (
     <div>
@@ -66,7 +71,7 @@ export default function LastPayments({ projects, milestones, profiles }) {
         <div>
           <div className="page-title">Last Payments</div>
           <div className="text-muted" style={{ marginTop:3 }}>
-            Most recent payment received per project · {withPayment.length} projects paid · {withoutPayment.length} awaiting
+            Active projects with no payment received in the last 30 days · {rows.length} project{rows.length !== 1 ? 's' : ''} need attention
           </div>
         </div>
         <div style={{ display:'flex', gap:8, alignItems:'flex-end', flexWrap:'wrap' }}>
@@ -98,17 +103,16 @@ export default function LastPayments({ projects, milestones, profiles }) {
       </div>
 
       {/* Summary cards */}
-      {withPayment.length > 0 && (() => {
-        const recentDays = withPayment.filter(r => r.days < 30).length;
-        const overdueDays= withPayment.filter(r => r.days >= 60).length;
-        const totalNet   = rows.reduce((s, r) => s + r.totalNet, 0);
+      {rows.length > 0 && (() => {
+        const overdue60  = withPayment.filter(r => r.days >= 60).length;
+        const overdue90  = withPayment.filter(r => r.days >= 90).length;
         return (
           <div className="stats-grid" style={{ marginBottom:16 }}>
             {[
-              { label:'Total Net Received', value: fmt(totalNet),   color:'var(--success)', icon:'💰' },
-              { label:'Paid < 30 days',     value: recentDays,      color:'var(--success)', icon:'✅' },
-              { label:'Overdue > 60 days',  value: overdueDays,     color:'var(--danger)',  icon:'⚠️' },
-              { label:'No Payment Yet',     value: withoutPayment.length, color:'var(--text3)', icon:'🕐' },
+              { label:'Total Overdue',      value: rows.length,            color:'var(--danger)',  icon:'⚠️' },
+              { label:'30–60 Days',         value: withPayment.filter(r => r.days >= 30 && r.days < 60).length, color:'var(--warning)', icon:'🕐' },
+              { label:'> 60 Days',          value: overdue60,              color:'#F97316',        icon:'🔴' },
+              { label:'No Payment Ever',    value: withoutPayment.length,  color:'var(--text3)',   icon:'📭' },
             ].map(s => (
               <div className="stat-card" key={s.label}>
                 <div className="stat-icon" style={{ background: s.color + '18' }}><span style={{ fontSize:17 }}>{s.icon}</span></div>
@@ -132,11 +136,11 @@ export default function LastPayments({ projects, milestones, profiles }) {
             <th>Last Amount</th>
             <th>Net Amount</th>
             <th>Total Net Received</th>
-            <th>Age</th>
+            <th>Last Payment Date</th>
           </tr></thead>
           <tbody>
             {rows.length === 0 && (
-              <tr><td colSpan={9}><EmptyState icon="💳" message="No projects found" /></td></tr>
+              <tr><td colSpan={9}><EmptyState icon="✅" message="All active projects have received payment in the last 30 days" /></td></tr>
             )}
 
             {/* Projects with payments */}
@@ -144,7 +148,6 @@ export default function LastPayments({ projects, milestones, profiles }) {
               const hasC      = COMMISSION_PORTALS.includes(row.portal);
               const lastGross = parseFloat(row.last?.achieved) || 0;
               const lastNet   = calcNet(lastGross, row.portal);
-              const badge     = ageBadge(row.days);
               const pm        = pms.find(u => u.id === row.manager_id);
               return (
                 <tr key={row.id}>
@@ -180,13 +183,8 @@ export default function LastPayments({ projects, milestones, profiles }) {
                   <td className="mono" style={{ fontSize:13, color:'var(--success)', fontWeight:700 }}>
                     {fmt(row.totalNet)}
                   </td>
-                  <td>
-                    <span style={{
-                      display:'inline-block', padding:'2px 8px', borderRadius:12, fontSize:11, fontWeight:700,
-                      color: badge.color, background: badge.bg,
-                    }}>
-                      {row.days === 0 ? 'Today' : `${row.days}d ago`}
-                    </span>
+                  <td className="mono" style={{ fontSize:12, color:'var(--text2)' }}>
+                    {new Date(row.last.year, row.last.month - 1).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}
                   </td>
                 </tr>
               );
@@ -195,8 +193,8 @@ export default function LastPayments({ projects, milestones, profiles }) {
             {/* Separator row */}
             {withoutPayment.length > 0 && withPayment.length > 0 && (
               <tr>
-                <td colSpan={9} style={{ background:'var(--bg2)', fontSize:11, color:'var(--text3)', padding:'6px 14px', fontWeight:600, textTransform:'uppercase', letterSpacing:.8 }}>
-                  No payment received yet
+                <td colSpan={9} style={{ background:'var(--surface2)', fontSize:11, color:'var(--text3)', padding:'6px 14px', fontWeight:600, textTransform:'uppercase', letterSpacing:.8 }}>
+                  Never received any payment
                 </td>
               </tr>
             )}
@@ -220,7 +218,7 @@ export default function LastPayments({ projects, milestones, profiles }) {
                     </td>
                   )}
                   <td colSpan={4} style={{ color:'var(--text4)', fontSize:12, fontStyle:'italic' }}>No payment recorded</td>
-                  <td><span style={{ fontSize:11, color:'var(--text4)' }}>—</span></td>
+                  <td style={{ color:'var(--text4)', fontSize:12 }}>—</td>
                 </tr>
               );
             })}
