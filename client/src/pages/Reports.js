@@ -160,7 +160,7 @@ export default function Reports({ projects, profiles = [] }) {
           {[
             {label:'Gross Target',   value:fmt(gGross),                       color:'var(--text2)', icon:'🎯'},
             {label:'Commission',     value:'−'+fmt(gGross-pmSummary.reduce((s,r)=>s+calcNet(parseFloat(r.gross_target)||0,projects.find(p=>p.manager_id===r.pm_id)?.portal||'Direct'),0)), color:'var(--warning)', icon:'📉'},
-            {label:'Net Achieved',   value:fmt(gAchieved),                    color:'var(--success)',icon:'✅'},
+            {label:'Gross Achieved', value:fmt(gAchieved),                    color:'var(--success)',icon:'✅'},
             {label:'Active Projects',value:projects.filter(p=>!p.all_payments_received).length, color:'var(--purple)', icon:'📁'},
           ].map(s=>(
             <div className="stat-card" key={s.label}>
@@ -225,7 +225,7 @@ export default function Reports({ projects, profiles = [] }) {
               <thead><tr>
                 <th>Project</th><th>Client</th><th>Portal</th>
                 {isAdmin && <th>PM</th>}
-                <th>Month Gross</th><th>Commission</th><th>Month Achieved</th><th>Progress</th>
+                <th>Month Gross</th><th>Commission</th><th>Month Achieved</th><th>Difference</th><th>Progress</th>
               </tr></thead>
               <tbody>
                 {projectDetail.map(pd => {
@@ -247,6 +247,9 @@ export default function Reports({ projects, profiles = [] }) {
                       <td className="mono" style={{fontSize:12}}>{fmt(gross)}</td>
                       <td className="mono" style={{fontSize:12,color:hasC?'var(--warning)':'var(--text4)'}}>{hasC?'−'+fmt(gross-net):'—'}</td>
                       <td className="mono" style={{fontSize:12,color:'var(--success)',fontWeight:600}}>{fmt(ach)}</td>
+                      <td className="mono" style={{fontSize:12,fontWeight:600,color:(ach-gross)>=0?'var(--success)':'var(--danger)'}}>
+                        {(ach-gross)>=0?'+':''}{fmt(ach-gross)}
+                      </td>
                       <td style={{minWidth:80}}><div style={{fontSize:11,color:'var(--text3)'}}>{p}%</div><ProgressBar value={p}/></td>
                     </tr>
                   );

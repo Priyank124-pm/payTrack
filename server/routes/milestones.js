@@ -172,7 +172,7 @@ router.patch('/:id', async (req, res) => {
 router.get('/:id/comments', async (req, res) => {
   try {
     const [rows] = await pool.query(
-      'SELECT * FROM milestone_comments WHERE milestone_id = ? ORDER BY created_at ASC',
+      'SELECT * FROM milestone_comments WHERE milestone_id = ? ORDER BY created_at DESC',
       [req.params.id]
     );
     res.json(rows);
@@ -193,7 +193,7 @@ router.post('/:id/comments', async (req, res) => {
       [req.params.id, req.user.id, req.user.name, req.user.role, comment.trim()]
     );
     const [rows] = await pool.query(
-      'SELECT * FROM milestone_comments WHERE milestone_id = ? ORDER BY created_at ASC',
+      'SELECT * FROM milestone_comments WHERE milestone_id = ? ORDER BY created_at DESC',
       [req.params.id]
     );
     res.status(201).json(rows);

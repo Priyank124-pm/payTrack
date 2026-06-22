@@ -111,7 +111,7 @@ function NotificationBell() {
 
       {/* Dropdown panel */}
       {open && (
-        <div style={{ position:'absolute', right:0, top:'calc(100% + 8px)', width:360, maxHeight:480, background:'var(--surface)', border:'1px solid var(--border1)', borderRadius:12, boxShadow:'0 8px 32px rgba(0,0,0,.14)', zIndex:1000, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+        <div style={{ position:'absolute', right:0, top:'calc(100% + 8px)', width:360, maxWidth:'calc(100vw - 20px)', maxHeight:480, background:'var(--surface)', border:'1px solid var(--border1)', borderRadius:12, boxShadow:'0 8px 32px rgba(0,0,0,.14)', zIndex:1000, display:'flex', flexDirection:'column', overflow:'hidden' }}>
           {/* Header */}
           <div style={{ padding:'12px 16px', borderBottom:'1px solid var(--border1)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
             <span style={{ fontWeight:700, fontSize:14 }}>Notifications {unread > 0 && <span style={{ background:'#DC2626', color:'white', borderRadius:20, fontSize:10, padding:'1px 6px', marginLeft:4 }}>{unread}</span>}</span>
@@ -247,8 +247,12 @@ function ChangePasswordModal({ onClose }) {
 
 function AppShell() {
   const { user, loading, signOut, isAdmin } = useAuth();
-  const [page,       setPage]       = useState('dashboard');
+  const [page,         setPage]         = useState('projects');
   const [showChangePw, setShowChangePw] = useState(false);
+  const [sidebarOpen,  setSidebarOpen]  = useState(false);
+
+  const closeSidebar = () => setSidebarOpen(false);
+  const navTo = (id) => { setPage(id); closeSidebar(); };
 
   const { profiles,   createProfile, updateProfile, deleteProfile }                   = useProfiles();
   const {
@@ -269,7 +273,6 @@ function AppShell() {
   if (!user) return <Login />;
 
   const nav = [
-    { id: 'dashboard',   icon: 'dashboard',  label: 'Dashboard' },
     ...(isAdmin ? [{ id: 'users', icon: 'users', label: 'User Management' }] : []),
     { id: 'projects',    icon: 'projects',   label: 'Projects' },
     { id: 'projections',   icon: 'projection', label: 'Monthly Projections' },
@@ -321,8 +324,11 @@ function AppShell() {
 
   return (
     <div className="app-layout">
+      {/* ── Sidebar overlay (tablet/mobile) ─────────────────── */}
+      <div className={`sidebar-overlay${sidebarOpen ? ' open' : ''}`} onClick={closeSidebar} />
+
       {/* ── Sidebar ─────────────────────────────────────────── */}
-      <aside className="sidebar">
+      <aside className={`sidebar${sidebarOpen ? ' open' : ''}`}>
         <div className="sidebar-logo">
           <div className="logo-icon">N</div>
           <div>
@@ -347,7 +353,7 @@ function AppShell() {
           <div className="nav-section">
             <div className="nav-section-label">Navigation</div>
             {nav.map(n => (
-              <div key={n.id} className={`nav-item${page === n.id ? ' active' : ''}`} onClick={() => setPage(n.id)}>
+              <div key={n.id} className={`nav-item${page === n.id ? ' active' : ''}`} onClick={() => navTo(n.id)}>
                 <Icon name={n.icon} size={15} />
                 {n.label}
                 {n.id === 'projects' && pendingCRs > 0 && isAdmin && (
@@ -362,7 +368,7 @@ function AppShell() {
           {/* Account section */}
           <div className="nav-section">
             <div className="nav-section-label">Account</div>
-            <div className="nav-item" onClick={() => setShowChangePw(true)}>
+            <div className="nav-item" onClick={() => { setShowChangePw(true); closeSidebar(); }}>
               <Icon name="key" size={15} />
               Change Password
             </div>
@@ -379,9 +385,16 @@ function AppShell() {
       {/* ── Main content ────────────────────────────────────── */}
       <main className="main">
         <div className="topbar">
-          <div className="page-title">{titles[page]}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 12, color: 'var(--text3)' }}>
+            <button className="hamburger" onClick={() => setSidebarOpen(o => !o)} aria-label="Toggle menu">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+              </svg>
+            </button>
+            <div className="page-title">{titles[page]}</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span className="topbar-date" style={{ fontSize: 12, color: 'var(--text3)' }}>
               {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
             </span>
             <NotificationBell />

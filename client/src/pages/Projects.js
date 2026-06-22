@@ -6,6 +6,65 @@ import { projectsAPI } from '../api';
 
 const TYPES = ['Monthly','Hourly','Milestone'];
 
+// ── Actions dropdown ───────────────────────────────────────────
+function ActionsMenu({ items }) {
+  const [pos,  setPos]  = React.useState(null);
+  const btnRef  = React.useRef(null);
+  const menuRef = React.useRef(null);
+
+  const handleOpen = e => {
+    e.stopPropagation();
+    if (pos) { setPos(null); return; }
+    const r = btnRef.current.getBoundingClientRect();
+    setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+  };
+
+  React.useEffect(() => {
+    if (!pos) return;
+    const handler = e => {
+      if (menuRef.current && !menuRef.current.contains(e.target) && !btnRef.current.contains(e.target))
+        setPos(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [pos]);
+
+  const visible = items.filter(Boolean);
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        className="btn btn-sm btn-ghost"
+        style={{ gap: 5 }}
+        onClick={handleOpen}
+      >
+        Actions
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+      </button>
+      {pos && (
+        <div
+          ref={menuRef}
+          style={{ position:'fixed', top: pos.top, right: pos.right, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius)', boxShadow:'var(--shadow-lg)', zIndex:9999, minWidth:210, overflow:'hidden' }}
+        >
+          {visible.map((item, i) => (
+            <button
+              key={i}
+              onClick={e => { e.stopPropagation(); setPos(null); item.onClick(); }}
+              style={{ display:'flex', alignItems:'center', gap:10, width:'100%', padding:'10px 14px', background:'none', border:'none', borderBottom: i < visible.length - 1 ? '1px solid var(--border)' : 'none', cursor:'pointer', fontSize:13, color: item.danger ? 'var(--danger)' : 'var(--text)', fontFamily:'Inter,sans-serif', textAlign:'left' }}
+              onMouseOver={e => e.currentTarget.style.background = item.danger ? 'var(--danger-lt)' : 'var(--surface2)'}
+              onMouseOut={e  => e.currentTarget.style.background = 'none'}
+            >
+              <span style={{ color: item.danger ? 'var(--danger)' : 'var(--text3)', display:'flex', flexShrink:0 }}><Icon name={item.icon} size={14} /></span>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 // ── CSV helpers ────────────────────────────────────────────────
 function parseCSV(text) {
   const lines = text.split(/\r?\n/);
@@ -208,8 +267,9 @@ export default function Projects({
         return p.name.toLowerCase().includes(q) || p.client.toLowerCase().includes(q);
       })
     : allMyProjects;
-  const myProjects        = allFiltered.filter(p => p.status !== 'maintenance' && p.status !== 'server');
+  const myProjects          = allFiltered.filter(p => p.status !== 'maintenance' && p.status !== 'server' && p.status !== 'production');
   const serverMaintProjects = allFiltered.filter(p => p.status === 'maintenance' || p.status === 'server');
+  const productionProjects  = allFiltered.filter(p => p.status === 'production');
   const filteredArchived = searchQuery
     ? archivedProjects.filter(p => {
         const q = searchQuery.toLowerCase();
@@ -260,7 +320,7 @@ export default function Projects({
         <div>
           <div className="page-title">Projects</div>
           <div className="text-muted" style={{ marginTop:3 }}>
-            {activeTab==='active' ? myProjects.length : activeTab==='server' ? serverMaintProjects.length : filteredArchived.length} projects
+            {activeTab==='active' ? myProjects.length : activeTab==='server' ? serverMaintProjects.length : activeTab==='production' ? productionProjects.length : filteredArchived.length} projects
           </div>
         </div>
         <div style={{ display:'flex', gap:8, alignItems:'flex-end', flexWrap:'wrap' }}>
@@ -297,11 +357,14 @@ export default function Projects({
           <button style={TAB_STYLE(activeTab==='server')} onClick={() => handleTabChange('server')}>
             Server &amp; Maintenance ({serverMaintProjects.length})
           </button>
+          <button style={TAB_STYLE(activeTab==='production')} onClick={() => handleTabChange('production')}>
+            <Icon name="rocket" size={13} /> Ready to Production ({productionProjects.length})
+          </button>
         </div>
       )}
 
       {/* ── Info / warnings (active tab only) ────────────────── */}
-      {(activeTab==='active'||activeTab==='server') && <>
+      {(activeTab==='active'||activeTab==='server'||activeTab==='production') && <>
         <div className="info-box mb-4" style={{ marginBottom:12 }}>
           <Icon name="info" size={13} />
           <span>Achieved payments are auto-calculated from <strong>Monthly Projections</strong>. Mark a project "Done" once all payments are received — it hides from projections until a Change Request is added.</span>
@@ -380,20 +443,15 @@ export default function Projects({
                       }
                     </td>
                     <td style={{ textAlign:'right' }}>
-                      <div style={{ display:'flex',gap:4,justifyContent:'flex-end' }}>
-                        {!pr.all_payments_received && <button className="btn btn-xs btn-success" onClick={()=>{if(window.confirm('Mark all payments received? Project will hide from projections.'))onMarkReceived(pr.id)}}>✓ Done</button>}
-                        {pr.all_payments_received  && <button className="btn btn-xs btn-outline"  onClick={()=>openCR(pr.id)}><Icon name="cr" size={11}/>CR</button>}
-                        <button className="btn btn-sm btn-ghost btn-icon" onClick={()=>openEdit(pr)}><Icon name="edit" size={13}/></button>
-                        <button
-                          className="btn btn-sm btn-ghost btn-icon"
-                          title="Move to Server & Maintenance"
-                          onClick={() => handleQuickStatus(pr.id, 'maintenance')}
-                        >
-                          <Icon name="settings" size={13}/>
-                        </button>
-                        <button className="btn btn-sm btn-ghost btn-icon" title="Archive" onClick={()=>handleArchive(pr.id)}><Icon name="archive" size={13}/></button>
-                        {isSuperAdmin && <button className="btn btn-sm btn-danger btn-icon" onClick={()=>{if(window.confirm('Delete project and all its data?'))onDelete(pr.id)}}><Icon name="delete" size={13}/></button>}
-                      </div>
+                      <ActionsMenu items={[
+                        !pr.all_payments_received && { icon:'check', label:'Mark Done', onClick:()=>{ if(window.confirm('Mark all payments received? Project will hide from projections.')) onMarkReceived(pr.id); } },
+                        pr.all_payments_received  && { icon:'cr',    label:'Change Request', onClick:()=>openCR(pr.id) },
+                        { icon:'edit',    label:'Edit',                       onClick:()=>openEdit(pr) },
+                        { icon:'settings',label:'Server & Maintenance',       onClick:()=>handleQuickStatus(pr.id,'maintenance') },
+                        { icon:'rocket',  label:'Ready to Production',        onClick:()=>handleQuickStatus(pr.id,'production') },
+                        { icon:'archive', label:'Archive',                    onClick:()=>handleArchive(pr.id) },
+                        isSuperAdmin && { icon:'delete', label:'Delete', danger:true, onClick:()=>{ if(window.confirm('Delete project and all its data?')) onDelete(pr.id); } },
+                      ]} />
                     </td>
                   </tr>
                 );
@@ -430,13 +488,11 @@ export default function Projects({
                     {isAdmin && <td style={{fontSize:12,color:'var(--text2)'}}>{pr.coordinator_name||'—'}</td>}
                     <td className="mono" style={{fontSize:12}}>{fmt(pr.target_payment)}</td>
                     <td style={{textAlign:'right'}}>
-                      <div style={{display:'flex',gap:4,justifyContent:'flex-end'}}>
-                        <button className="btn btn-sm btn-ghost btn-icon" title="Comments" onClick={()=>openProjectComments(pr)}><Icon name="comment" size={13}/></button>
-                        <button className="btn btn-xs btn-outline" onClick={()=>handleRestore(pr.id)}>
-                          <Icon name="restore" size={11}/>Restore
-                        </button>
-                        {isSuperAdmin && <button className="btn btn-sm btn-danger btn-icon" onClick={()=>{if(window.confirm('Permanently delete this project and all its data?'))onDelete(pr.id)}}><Icon name="delete" size={13}/></button>}
-                      </div>
+                      <ActionsMenu items={[
+                        { icon:'comment', label:'Comments', onClick:()=>openProjectComments(pr) },
+                        { icon:'restore', label:'Restore',  onClick:()=>handleRestore(pr.id) },
+                        isSuperAdmin && { icon:'delete', label:'Delete', danger:true, onClick:()=>{ if(window.confirm('Permanently delete this project and all its data?')) onDelete(pr.id); } },
+                      ]} />
                     </td>
                   </tr>
                 );
@@ -473,17 +529,52 @@ export default function Projects({
                     </td>
                     <td className="mono" style={{ fontSize:12 }}>{fmt(pr.target_payment)}</td>
                     <td style={{ textAlign:'right' }}>
-                      <div style={{ display:'flex', gap:4, justifyContent:'flex-end' }}>
-                        <button className="btn btn-sm btn-ghost btn-icon" title="Comments" onClick={()=>openProjectComments(pr)}><Icon name="comment" size={13}/></button>
-                        <button
-                          className="btn btn-xs btn-outline"
-                          title="Move back to Active"
-                          onClick={() => { if (window.confirm('Move this project back to Active?')) handleQuickStatus(pr.id, 'active'); }}
-                        >→ Active</button>
-                        <button className="btn btn-sm btn-ghost btn-icon" title="Edit" onClick={()=>openEdit(pr)}><Icon name="edit" size={13}/></button>
-                        <button className="btn btn-sm btn-ghost btn-icon" title="Archive" onClick={()=>handleArchive(pr.id)}><Icon name="archive" size={13}/></button>
-                        {isSuperAdmin && <button className="btn btn-sm btn-danger btn-icon" onClick={()=>{if(window.confirm('Delete project and all its data?'))onDelete(pr.id)}}><Icon name="delete" size={13}/></button>}
-                      </div>
+                      <ActionsMenu items={[
+                        { icon:'comment', label:'Comments',       onClick:()=>openProjectComments(pr) },
+                        { icon:'restore', label:'Move to Active', onClick:()=>{ if(window.confirm('Move this project back to Active?')) handleQuickStatus(pr.id,'active'); } },
+                        { icon:'edit',    label:'Edit',           onClick:()=>openEdit(pr) },
+                        { icon:'archive', label:'Archive',        onClick:()=>handleArchive(pr.id) },
+                        isSuperAdmin && { icon:'delete', label:'Delete', danger:true, onClick:()=>{ if(window.confirm('Delete project and all its data?')) onDelete(pr.id); } },
+                      ]} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table></div>
+        </div>
+      )}
+
+      {/* ══ READY TO PRODUCTION TAB ════════════════════════════ */}
+      {activeTab==='production' && (
+        <div className="card">
+          <div className="table-wrap"><table>
+            <thead><tr>
+              <th>Project</th><th>Client</th><th>Type</th><th>Portal</th>
+              {isAdmin && <th>PM</th>}
+              {isAdmin && <th>Coordinator</th>}
+              <th>Target</th><th style={{ textAlign:'right' }}>Actions</th>
+            </tr></thead>
+            <tbody>
+              {productionProjects.length===0 && <tr><td colSpan={9}><EmptyState icon="🚀" message="No projects ready for production" /></td></tr>}
+              {productionProjects.map(pr => {
+                const pm = pms.find(u=>u.id===pr.manager_id);
+                return (
+                  <tr key={pr.id}>
+                    <td style={{ fontWeight:700 }}>{pr.name}</td>
+                    <td style={{ color:'var(--text2)' }}>{pr.client}</td>
+                    <td><span className="tag">{pr.type}</span></td>
+                    <td><span className="tag">{pr.portal}</span></td>
+                    {isAdmin && <td style={{ fontSize:12 }}>{pm?.name||'—'}</td>}
+                    {isAdmin && <td style={{ fontSize:12, color:'var(--text2)' }}>{pr.coordinator_name||'—'}</td>}
+                    <td className="mono" style={{ fontSize:12 }}>{fmt(pr.target_payment)}</td>
+                    <td style={{ textAlign:'right' }}>
+                      <ActionsMenu items={[
+                        { icon:'restore', label:'Move to Active', onClick:()=>handleQuickStatus(pr.id,'active') },
+                        { icon:'edit',    label:'Edit',           onClick:()=>openEdit(pr) },
+                        { icon:'archive', label:'Archive',        onClick:()=>handleArchive(pr.id) },
+                        isSuperAdmin && { icon:'delete', label:'Delete', danger:true, onClick:()=>{ if(window.confirm('Delete project?')) onDelete(pr.id); } },
+                      ]} />
                     </td>
                   </tr>
                 );
@@ -557,6 +648,7 @@ export default function Projects({
                 <option value="on_hold">On Hold</option>
                 <option value="maintenance">Maintenance</option>
                 <option value="server">Server</option>
+                <option value="production">Ready to Production</option>
               </select>
             </div>
           </div>
