@@ -64,6 +64,37 @@ export default function LastPayments({ projects, milestones, profiles }) {
   const withPayment    = rows.filter(r => r.last);   // last payment exists but > 30 days
   const withoutPayment = rows.filter(r => !r.last);  // never received payment
 
+  const exportCSV = () => {
+    const headers = ['Project', 'Client', 'Portal', 'PM', 'Last Payment (Month)', 'Last Amount', 'Net Amount', 'Total Net Received', 'Last Payment Date'];
+    const csvRows = rows.map(row => {
+      const pm        = pms.find(u => u.id === row.manager_id);
+      const hasC      = COMMISSION_PORTALS.includes(row.portal);
+      const lastGross = parseFloat(row.last?.achieved) || 0;
+      const lastNet   = calcNet(lastGross, row.portal);
+      const date      = row.last
+        ? new Date(row.last.year, row.last.month - 1).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
+        : '—';
+      return [
+        row.name,
+        row.client,
+        row.portal,
+        pm?.name || '—',
+        row.last ? `${MONTHS[row.last.month - 1]?.label} ${row.last.year}` : 'No payment',
+        row.last ? lastGross.toFixed(2) : '—',
+        row.last ? lastNet.toFixed(2) : '—',
+        row.totalNet.toFixed(2),
+        date,
+      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
+    });
+    const blob = new Blob([[headers.join(','), ...csvRows].join('\n')], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `last-payments-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div>
       {/* Header */}
@@ -99,6 +130,14 @@ export default function LastPayments({ projects, milestones, profiles }) {
               />
             </div>
           </div>
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={exportCSV}
+            disabled={rows.length === 0}
+            style={{ alignSelf:'flex-end' }}
+          >
+            <Icon name="download" size={13} /> Export CSV
+          </button>
         </div>
       </div>
 

@@ -157,8 +157,9 @@ export default function Projects({
   const [saving,       setSaving]       = useState(false);
   // Archive tab
   const [activeTab,    setActiveTab]    = useState('active');
-  // Search
+  // Search & PM filter
   const [searchQuery,  setSearchQuery]  = useState('');
+  const [filterPM,     setFilterPM]     = useState('all');
   // Multi-select
   const [selected,     setSelected]     = useState(new Set());
   // CSV import state
@@ -166,10 +167,13 @@ export default function Projects({
   const [csvError,     setCsvError]     = useState('');
   const [csvImporting, setCsvImporting] = useState(false);
   const [csvResult,    setCsvResult]    = useState(null);
-  const [commentModal,       setCommentModal]       = useState(null); // { project, comments }
+  const [commentModal,       setCommentModal]       = useState(null);
   const [commentText,        setCommentText]        = useState('');
   const [commentLoading,     setCommentLoading]     = useState(false);
   const [commentSaving,      setCommentSaving]      = useState(false);
+  const [bulkModal,          setBulkModal]          = useState(null); // 'pm' | 'pc'
+  const [bulkValue,          setBulkValue]          = useState('');
+  const [bulkSaving,         setBulkSaving]         = useState(false);
 
   const setF  = (k,v) => setForm(p=>({...p,[k]:v}));
   const setCRF = (k,v)=> setCRForm(p=>({...p,[k]:v}));
@@ -203,6 +207,19 @@ export default function Projects({
     if (!window.confirm(`Permanently delete ${ids.length} project(s) and all their data? This cannot be undone.`)) return;
     await onBulkDelete(ids);
     setSelected(new Set());
+  };
+
+  const openBulkReassign = (type) => { setBulkValue(''); setBulkModal(type); };
+  const saveBulkReassign = async () => {
+    if (!bulkValue) return;
+    setBulkSaving(true);
+    try {
+      const field = bulkModal === 'pm' ? 'manager_id' : 'coordinator_id';
+      await Promise.all([...selected].map(id => onUpdate(id, { [field]: bulkValue || null })));
+      setSelected(new Set());
+      setBulkModal(null);
+    } catch (e) { setError(e.message); }
+    finally { setBulkSaving(false); }
   };
 
   const handleQuickStatus = async (id, status) => {
@@ -261,21 +278,25 @@ export default function Projects({
 
   const pms = profiles.filter(u=>u.role==='project_manager');
   const allMyProjects = isAdmin ? projects : projects.filter(p=>p.manager_id===effectiveManagerId);
-  const allFiltered = searchQuery
-    ? allMyProjects.filter(p => {
-        const q = searchQuery.toLowerCase();
-        return p.name.toLowerCase().includes(q) || p.client.toLowerCase().includes(q);
-      })
-    : allMyProjects;
+  const allFiltered = allMyProjects.filter(p => {
+    if (isAdmin && filterPM !== 'all' && p.manager_id !== filterPM) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      if (!p.name.toLowerCase().includes(q) && !p.client.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
   const myProjects          = allFiltered.filter(p => p.status !== 'maintenance' && p.status !== 'server' && p.status !== 'production');
   const serverMaintProjects = allFiltered.filter(p => p.status === 'maintenance' || p.status === 'server');
   const productionProjects  = allFiltered.filter(p => p.status === 'production');
-  const filteredArchived = searchQuery
-    ? archivedProjects.filter(p => {
-        const q = searchQuery.toLowerCase();
-        return p.name.toLowerCase().includes(q) || p.client.toLowerCase().includes(q);
-      })
-    : archivedProjects;
+  const filteredArchived = archivedProjects.filter(p => {
+    if (isAdmin && filterPM !== 'all' && p.manager_id !== filterPM) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      if (!p.name.toLowerCase().includes(q) && !p.client.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
 
   const getAchieved = pid => milestones.filter(m=>m.project_id===pid).reduce((s,m)=>s+(parseFloat(m.achieved)||0),0);
   const pendingCRs  = pid => changeRequests.filter(c=>c.project_id===pid&&c.status==='pending');
@@ -324,6 +345,20 @@ export default function Projects({
           </div>
         </div>
         <div style={{ display:'flex', gap:8, alignItems:'flex-end', flexWrap:'wrap' }}>
+          {isAdmin && pms.length > 0 && (
+            <div>
+              <div className="form-label">Filter by PM</div>
+              <select
+                className="form-control form-control-sm"
+                value={filterPM}
+                onChange={e => setFilterPM(e.target.value)}
+                style={{ minWidth: 140 }}
+              >
+                <option value="all">All PMs</option>
+                {pms.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          )}
           <div style={{ position:'relative' }}>
             <span style={{ position:'absolute', left:8, top:'50%', transform:'translateY(-50%)', color:'var(--text3)', pointerEvents:'none', display:'flex' }}>
               <Icon name="search" size={13} />
@@ -377,17 +412,25 @@ export default function Projects({
         )}
       </>}
 
-      {/* ── Bulk-delete bar ───────────────────────────────────── */}
-      {isSuperAdmin && selected.size > 0 && (
-        <div style={{ background:'var(--danger)', color:'white', padding:'9px 16px', borderRadius:7, display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
-          <span style={{ fontWeight:600 }}>{selected.size} project{selected.size!==1?'s':''} selected</span>
-          <div style={{ display:'flex', gap:8 }}>
+      {/* ── Bulk action bar ───────────────────────────────────── */}
+      {isAdmin && selected.size > 0 && (
+        <div style={{ background:'var(--primary)', color:'white', padding:'10px 16px', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10, flexWrap:'wrap', gap:8 }}>
+          <span style={{ fontWeight:600, fontSize:13 }}>{selected.size} project{selected.size!==1?'s':''} selected</span>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
             <button className="btn btn-sm" style={{ background:'rgba(255,255,255,.15)', color:'white', border:'1px solid rgba(255,255,255,.3)' }} onClick={() => setSelected(new Set())}>
               Clear
             </button>
-            <button className="btn btn-sm" style={{ background:'white', color:'var(--danger)', fontWeight:700 }} onClick={handleBulkDelete}>
-              <Icon name="delete" size={13} />Delete Selected
+            <button className="btn btn-sm" style={{ background:'white', color:'var(--primary)', fontWeight:600 }} onClick={() => openBulkReassign('pm')}>
+              <Icon name="users" size={13} />Change PM
             </button>
+            <button className="btn btn-sm" style={{ background:'white', color:'var(--primary)', fontWeight:600 }} onClick={() => openBulkReassign('pc')}>
+              <Icon name="users" size={13} />Change PC
+            </button>
+            {isSuperAdmin && (
+              <button className="btn btn-sm" style={{ background:'var(--danger)', color:'white', fontWeight:700, border:'1px solid rgba(255,255,255,.3)' }} onClick={handleBulkDelete}>
+                <Icon name="delete" size={13} />Delete
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -397,7 +440,7 @@ export default function Projects({
         <div className="card">
           <div className="table-wrap"><table>
             <thead><tr>
-              {isSuperAdmin && <th style={{width:36}}><input type="checkbox" checked={selected.size===myProjects.length&&myProjects.length>0} onChange={()=>toggleAll(myProjects)}/></th>}
+              {isAdmin && <th style={{width:36}}><input type="checkbox" checked={selected.size===myProjects.length&&myProjects.length>0} onChange={()=>toggleAll(myProjects)}/></th>}
               <th>Project</th><th>Client</th><th>Type</th><th>Portal</th>
               {isAdmin && <th>PM</th>}
               {isAdmin && <th>Coordinator</th>}
@@ -416,7 +459,7 @@ export default function Projects({
                 const crCount     = pendingCRs(pr.id).length;
                 return (
                   <tr key={pr.id} style={selected.has(pr.id)?{background:'var(--primary-lt)'}:{}}>
-                    {isSuperAdmin && <td><input type="checkbox" checked={selected.has(pr.id)} onChange={()=>toggleSelect(pr.id)}/></td>}
+                    {isAdmin && <td><input type="checkbox" checked={selected.has(pr.id)} onChange={()=>toggleSelect(pr.id)}/></td>}
                     <td>
                       <div style={{ fontWeight:700 }}>{pr.name}</div>
                       {crCount>0 && <span className="badge badge-yellow" style={{ fontSize:10,marginTop:3 }}>⏳ {crCount} CR pending</span>}
@@ -466,7 +509,7 @@ export default function Projects({
         <div className="card">
           <div className="table-wrap"><table>
             <thead><tr>
-              {isSuperAdmin && <th style={{width:36}}><input type="checkbox" checked={selected.size===filteredArchived.length&&filteredArchived.length>0} onChange={()=>toggleAll(filteredArchived)}/></th>}
+              {isAdmin && <th style={{width:36}}><input type="checkbox" checked={selected.size===filteredArchived.length&&filteredArchived.length>0} onChange={()=>toggleAll(filteredArchived)}/></th>}
               <th>Project</th><th>Client</th><th>Type</th><th>Portal</th>
               {isAdmin && <th>PM</th>}
               {isAdmin && <th>Coordinator</th>}
@@ -479,7 +522,7 @@ export default function Projects({
                 const pm = pms.find(u=>u.id===pr.manager_id);
                 return (
                   <tr key={pr.id} style={{opacity:.85, ...(selected.has(pr.id)?{background:'var(--primary-lt)'}:{})}}>
-                    {isSuperAdmin && <td><input type="checkbox" checked={selected.has(pr.id)} onChange={()=>toggleSelect(pr.id)}/></td>}
+                    {isAdmin && <td><input type="checkbox" checked={selected.has(pr.id)} onChange={()=>toggleSelect(pr.id)}/></td>}
                     <td style={{fontWeight:700}}>{pr.name}</td>
                     <td style={{color:'var(--text2)'}}>{pr.client}</td>
                     <td><span className="tag">{pr.type}</span></td>
@@ -805,6 +848,39 @@ export default function Projects({
       )}
 
       {/* CR Modal */}
+      {/* ── Bulk Reassign Modal ──────────────────────────────── */}
+      {bulkModal && (
+        <Modal
+          title={bulkModal === 'pm' ? `Change PM for ${selected.size} Project${selected.size !== 1 ? 's' : ''}` : `Change PC for ${selected.size} Project${selected.size !== 1 ? 's' : ''}`}
+          onClose={() => setBulkModal(null)}
+          small
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => setBulkModal(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveBulkReassign} disabled={bulkSaving || !bulkValue}>
+                {bulkSaving ? <Spinner /> : <><Icon name="check" size={13} />Apply to {selected.size} Projects</>}
+              </button>
+            </>
+          }
+        >
+          {error && <div className="alert alert-error" style={{ marginBottom:12 }}>{error}</div>}
+          <div className="info-box" style={{ marginBottom:14 }}>
+            <Icon name="info" size={13} />
+            This will update the {bulkModal === 'pm' ? 'Project Manager' : 'Project Coordinator'} for all {selected.size} selected project{selected.size !== 1 ? 's' : ''}.
+          </div>
+          <div className="form-group">
+            <label className="form-label">{bulkModal === 'pm' ? 'New Project Manager' : 'New Project Coordinator'}</label>
+            <select className="form-control" value={bulkValue} onChange={e => setBulkValue(e.target.value)}>
+              <option value="">— Select —</option>
+              {bulkModal === 'pm'
+                ? pms.map(u => <option key={u.id} value={u.id}>{u.name}</option>)
+                : coordinators.map(u => <option key={u.id} value={u.id}>{u.name}</option>)
+              }
+            </select>
+          </div>
+        </Modal>
+      )}
+
       {modal==='cr' && (
         <Modal title="Add Change Request" onClose={()=>setModal(null)} small
           footer={<><button className="btn btn-ghost" onClick={()=>setModal(null)}>Cancel</button><button className="btn btn-primary" onClick={saveCR} disabled={saving}>{saving?<Spinner/>:<><Icon name="check"/>Submit</>}</button></>}>
