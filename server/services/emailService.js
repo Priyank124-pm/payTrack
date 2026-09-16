@@ -157,4 +157,176 @@ function dueSoonTemplate({ recipientName, milestones }) {
   `;
 }
 
-module.exports = { sendMail, overdueTemplate, dueSoonTemplate };
+// ── Server Management: deal checkout link ──────────────────────
+function dealCheckoutLinkTemplate({ recipientName, planName, amount, checkoutUrl }) {
+  return `
+  <!DOCTYPE html>
+  <html>
+  <head><meta charset="utf-8"/></head>
+  <body style="margin:0;padding:0;font-family:'Inter',Arial,sans-serif;background:#F5F7FA;">
+    <div style="max-width:640px;margin:32px auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);">
+      <div style="background:linear-gradient(135deg,#4F46E5,#7C3AED);padding:28px 32px;display:flex;align-items:center;gap:14px;">
+        <div style="width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:white;">N</div>
+        <div>
+          <div style="color:white;font-size:20px;font-weight:800;letter-spacing:-.5px;">NexPortal</div>
+          <div style="color:rgba(255,255,255,.75);font-size:12px;">Server &amp; Maintenance Plan</div>
+        </div>
+      </div>
+      <div style="padding:28px 32px;">
+        <p style="color:#374151;font-size:14px;margin-bottom:20px;">Hi <strong>${recipientName}</strong>,</p>
+        <p style="color:#6B7280;font-size:13px;line-height:1.6;margin-bottom:22px;">
+          Thanks for agreeing to the <strong>${planName}</strong> plan (<strong>$${Number(amount).toLocaleString()}/mo</strong>). Click below to set up billing securely via Stripe.
+        </p>
+        <div style="text-align:center;margin:28px 0;">
+          <a href="${checkoutUrl}" style="display:inline-block;background:#4F46E5;color:white;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px;">Set Up Billing</a>
+        </div>
+        <p style="color:#9CA3AF;font-size:12px;line-height:1.6;">If the button doesn't work, copy this link: <br/>${checkoutUrl}</p>
+      </div>
+      <div style="background:#F5F7FA;border-top:1px solid #E2E6EF;padding:16px 32px;text-align:center;">
+        <p style="color:#9CA3AF;font-size:11px;margin:0;">Sent from NexPortal.</p>
+      </div>
+    </div>
+  </body>
+  </html>
+  `;
+}
+
+// ── Server Management: monthly invoice ──────────────────────────
+function invoiceTemplate({ recipientName, projectName, invoice, lineItems, payNowUrl }) {
+  const rows = lineItems.map(li => `
+    <tr>
+      <td style="padding:10px 14px;border-bottom:1px solid #E2E6EF;${li.is_carry_forward ? 'color:#D97706;' : ''}">${li.description}</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #E2E6EF;font-family:monospace;text-align:right;">$${Number(li.amount).toLocaleString()}</td>
+    </tr>
+  `).join('');
+
+  const carryTag = lineItems.some(li => li.is_carry_forward)
+    ? `<span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700;margin-left:8px;">Includes overdue</span>`
+    : '';
+
+  return `
+  <!DOCTYPE html>
+  <html>
+  <head><meta charset="utf-8"/></head>
+  <body style="margin:0;padding:0;font-family:'Inter',Arial,sans-serif;background:#F5F7FA;">
+    <div style="max-width:640px;margin:32px auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);">
+      <div style="background:linear-gradient(135deg,#4F46E5,#7C3AED);padding:28px 32px;display:flex;align-items:center;gap:14px;">
+        <div style="width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:white;">N</div>
+        <div>
+          <div style="color:white;font-size:20px;font-weight:800;letter-spacing:-.5px;">NexPortal</div>
+          <div style="color:rgba(255,255,255,.75);font-size:12px;">Invoice ${invoice.invoice_number}</div>
+        </div>
+      </div>
+      <div style="padding:28px 32px;">
+        <p style="color:#374151;font-size:14px;margin-bottom:20px;">Hi <strong>${recipientName}</strong>,</p>
+        <p style="color:#6B7280;font-size:13px;line-height:1.6;margin-bottom:22px;">
+          Your invoice for <strong>${projectName}</strong> — Server Maintenance is ready. Amount due <strong>$${Number(invoice.total).toLocaleString()}</strong>, due ${invoice.due_date}. ${carryTag}
+        </p>
+        <table style="width:100%;border-collapse:collapse;border:1px solid #E2E6EF;border-radius:10px;overflow:hidden;font-size:13px;">
+          <thead>
+            <tr style="background:#F0F2F7;">
+              <th style="padding:10px 14px;text-align:left;font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:.6px;">Description</th>
+              <th style="padding:10px 14px;text-align:right;font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:.6px;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr>
+              <td style="padding:12px 14px;font-weight:700;">Total Due</td>
+              <td style="padding:12px 14px;font-weight:700;font-family:monospace;text-align:right;">$${Number(invoice.total).toLocaleString()}</td>
+            </tr>
+          </tfoot>
+        </table>
+        ${payNowUrl ? `
+        <div style="text-align:center;margin:28px 0 8px;">
+          <a href="${payNowUrl}" style="display:inline-block;background:#4F46E5;color:white;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px;">Pay Now</a>
+        </div>` : ''}
+      </div>
+      <div style="background:#F5F7FA;border-top:1px solid #E2E6EF;padding:16px 32px;text-align:center;">
+        <p style="color:#9CA3AF;font-size:11px;margin:0;">This is an automated invoice from NexPortal.</p>
+      </div>
+    </div>
+  </body>
+  </html>
+  `;
+}
+
+// ── Server Management: overdue payment reminder ─────────────────
+function reminderTemplate({ recipientName, projectName, invoice, daysOverdue, payNowUrl }) {
+  return `
+  <!DOCTYPE html>
+  <html>
+  <head><meta charset="utf-8"/></head>
+  <body style="margin:0;padding:0;font-family:'Inter',Arial,sans-serif;background:#F5F7FA;">
+    <div style="max-width:640px;margin:32px auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);">
+      <div style="background:linear-gradient(135deg,#4F46E5,#7C3AED);padding:28px 32px;display:flex;align-items:center;gap:14px;">
+        <div style="width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:white;">N</div>
+        <div>
+          <div style="color:white;font-size:20px;font-weight:800;">NexPortal</div>
+          <div style="color:rgba(255,255,255,.75);font-size:12px;">Payment Reminder</div>
+        </div>
+      </div>
+      <div style="padding:28px 32px;">
+        <div style="background:#FEE2E2;border:1px solid #FECACA;border-radius:10px;padding:14px 18px;margin-bottom:24px;">
+          <div style="font-weight:700;color:#B91C1C;">⚠️ Payment Overdue</div>
+          <div style="color:#B91C1C;font-size:13px;margin-top:3px;">Invoice ${invoice.invoice_number} is ${daysOverdue} day${daysOverdue > 1 ? 's' : ''} past due.</div>
+        </div>
+        <p style="color:#374151;font-size:14px;margin-bottom:20px;">Hi <strong>${recipientName}</strong>,</p>
+        <p style="color:#6B7280;font-size:13px;line-height:1.6;margin-bottom:22px;">
+          A friendly reminder that <strong>$${Number(invoice.total).toLocaleString()}</strong> for <strong>${projectName}</strong> — Server Maintenance was due ${invoice.due_date} and remains unpaid.
+        </p>
+        ${payNowUrl ? `
+        <div style="text-align:center;margin:28px 0 8px;">
+          <a href="${payNowUrl}" style="display:inline-block;background:#DC2626;color:white;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px;">Pay Now</a>
+        </div>` : ''}
+      </div>
+      <div style="background:#F5F7FA;border-top:1px solid #E2E6EF;padding:16px 32px;text-align:center;">
+        <p style="color:#9CA3AF;font-size:11px;margin:0;">Automated reminder from NexPortal.</p>
+      </div>
+    </div>
+  </body>
+  </html>
+  `;
+}
+
+// ── Server Management: admin → PM nudge on a stalled deal ───────
+function dealReminderTemplate({ recipientName, adminName, projectName, dealStatus, targetDate }) {
+  return `
+  <!DOCTYPE html>
+  <html>
+  <head><meta charset="utf-8"/></head>
+  <body style="margin:0;padding:0;font-family:'Inter',Arial,sans-serif;background:#F5F7FA;">
+    <div style="max-width:640px;margin:32px auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);">
+      <div style="background:linear-gradient(135deg,#4F46E5,#7C3AED);padding:28px 32px;display:flex;align-items:center;gap:14px;">
+        <div style="width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:white;">N</div>
+        <div>
+          <div style="color:white;font-size:20px;font-weight:800;">NexPortal</div>
+          <div style="color:rgba(255,255,255,.75);font-size:12px;">Server Deal Reminder</div>
+        </div>
+      </div>
+      <div style="padding:28px 32px;">
+        <p style="color:#374151;font-size:14px;margin-bottom:20px;">Hi <strong>${recipientName}</strong>,</p>
+        <p style="color:#6B7280;font-size:13px;line-height:1.6;margin-bottom:12px;">
+          <strong>${adminName}</strong> is nudging you to follow up on the server deal for <strong>${projectName}</strong> — currently <strong>${dealStatus}</strong>.
+          ${targetDate ? `Target decision date: <strong>${targetDate}</strong>.` : ''}
+        </p>
+        <p style="color:#9CA3AF;font-size:12px;">Log in to NexPortal → Server Management → Deals to update it.</p>
+      </div>
+      <div style="background:#F5F7FA;border-top:1px solid #E2E6EF;padding:16px 32px;text-align:center;">
+        <p style="color:#9CA3AF;font-size:11px;margin:0;">Sent from NexPortal.</p>
+      </div>
+    </div>
+  </body>
+  </html>
+  `;
+}
+
+module.exports = {
+  sendMail,
+  overdueTemplate,
+  dueSoonTemplate,
+  dealCheckoutLinkTemplate,
+  invoiceTemplate,
+  reminderTemplate,
+  dealReminderTemplate,
+};

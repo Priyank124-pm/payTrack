@@ -119,3 +119,34 @@ export const tasksAPI = {
   comments: (id)          => get(`/api/tasks/${id}/comments`),
   addComment: (id, comment) => post(`/api/tasks/${id}/comments`, { comment }),
 };
+
+// ── Server Management: Deals ─────────────────────────────────────
+export const serverDealsAPI = {
+  list:               (params = {}) => { const qs = new URLSearchParams(params).toString(); return get(`/api/server-deals${qs ? '?' + qs : ''}`); },
+  get:                (id)          => get(`/api/server-deals/${id}`),
+  create:             (body)        => post('/api/server-deals', body),
+  update:             (id, body)    => patch(`/api/server-deals/${id}`, body),
+  updateStatus:       (id, body)    => patch(`/api/server-deals/${id}/status`, body),
+  getCheckoutLink:    (id)          => get(`/api/server-deals/${id}/checkout-link`),
+  resendCheckoutEmail:(id, to)      => post(`/api/server-deals/${id}/resend-checkout-email`, { to }),
+  getComments:        (id)          => get(`/api/server-deals/${id}/comments`),
+  addComment:         (id, comment) => post(`/api/server-deals/${id}/comments`, { comment }),
+  remindPM:           (id)          => post(`/api/server-deals/${id}/remind`),
+};
+
+// ── Server Management: Subscriptions ──────────────────────────────
+export const serverSubscriptionsAPI = {
+  list:   (params = {}) => { const qs = new URLSearchParams(params).toString(); return get(`/api/server-subscriptions${qs ? '?' + qs : ''}`); },
+  get:    (id)          => get(`/api/server-subscriptions/${id}`),
+  cancel: (id)           => patch(`/api/server-subscriptions/${id}/cancel`),
+};
+
+// ── Server Management: Invoices ───────────────────────────────────
+export const invoicesAPI = {
+  list:           (params = {}) => { const qs = new URLSearchParams(params).toString(); return get(`/api/invoices${qs ? '?' + qs : ''}`); },
+  kpis:           (params = {}) => { const qs = new URLSearchParams(params).toString(); return get(`/api/invoices/kpis${qs ? '?' + qs : ''}`); },
+  get:            (id)          => get(`/api/invoices/${id}`),
+  clientHistory:  (subscriptionId) => get(`/api/invoices/client/${subscriptionId}`),
+  resend:         (id)          => post(`/api/invoices/${id}/resend`),
+  markPaidManual: (id)          => post(`/api/invoices/${id}/mark-paid-manual`),
+};

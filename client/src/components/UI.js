@@ -31,6 +31,7 @@ const P = {
   comment:   "M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z",
   settings:  "M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z",
   rocket:    "M12 2.5c0 0-4.5 3-4.5 8.5 0 1.93.78 3.68 2.04 4.96L8 17.5l1.5 1.5 1.54-1.54c.82.35 1.72.54 2.66.54s1.84-.19 2.66-.54L18 18.5l1.5-1.5-1.54-1.54C19.22 14.18 20 12.43 20 10.5 20 5 15.5 2.5 12 2.5zm0 11c-1.38 0-2.5-1.12-2.5-2.5S10.62 8.5 12 8.5s2.5 1.12 2.5 2.5S13.38 13.5 12 13.5z",
+  server:    "M4 1h16c1.1 0 2 .9 2 2v4c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V3c0-1.1.9-2 2-2zm12.5 3.5c.55 0 1-.45 1-1s-.45-1-1-1-1 .45-1 1 .45 1 1 1zM4 15h16c1.1 0 2 .9 2 2v4c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2v-4c0-1.1.9-2 2-2zm12.5 3.5c.55 0 1-.45 1-1s-.45-1-1-1-1 .45-1 1 .45 1 1 1z",
 };
 
 export const Icon = ({ name, size = 16, color }) => (
@@ -53,11 +54,77 @@ export const Modal = ({ title, onClose, children, footer, large, small }) => (
   </div>
 );
 
+// ── Actions dropdown (shared "Actions ▾" row menu) ───────────────
+export const ActionsMenu = ({ items }) => {
+  const [pos, setPos] = React.useState(null);
+  const btnRef  = React.useRef(null);
+  const menuRef = React.useRef(null);
+
+  const handleOpen = e => {
+    e.stopPropagation();
+    if (pos) { setPos(null); return; }
+    const r = btnRef.current.getBoundingClientRect();
+    setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+  };
+
+  React.useEffect(() => {
+    if (!pos) return;
+    const handler = e => {
+      if (menuRef.current && !menuRef.current.contains(e.target) && !btnRef.current.contains(e.target))
+        setPos(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [pos]);
+
+  const visible = items.filter(Boolean);
+
+  return (
+    <>
+      <button ref={btnRef} className="btn btn-sm btn-ghost" style={{ gap: 5 }} onClick={handleOpen}>
+        Actions
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+      </button>
+      {pos && (
+        <div
+          ref={menuRef}
+          style={{ position:'fixed', top: pos.top, right: pos.right, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius)', boxShadow:'var(--shadow-lg)', zIndex:9999, minWidth:210, overflow:'hidden' }}
+        >
+          {visible.map((item, i) => (
+            <button
+              key={i}
+              onClick={e => { e.stopPropagation(); setPos(null); item.onClick(); }}
+              style={{ display:'flex', alignItems:'center', gap:10, width:'100%', padding:'10px 14px', background:'none', border:'none', borderBottom: i < visible.length - 1 ? '1px solid var(--border)' : 'none', cursor:'pointer', fontSize:13, color: item.danger ? 'var(--danger)' : 'var(--text)', fontFamily:'Inter,sans-serif', textAlign:'left' }}
+              onMouseOver={e => e.currentTarget.style.background = item.danger ? 'var(--danger-lt)' : 'var(--surface2)'}
+              onMouseOut={e  => e.currentTarget.style.background = 'none'}
+            >
+              <span style={{ color: item.danger ? 'var(--danger)' : 'var(--text3)', display:'flex', flexShrink:0 }}><Icon name={item.icon} size={14} /></span>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+};
+
 // ── Badges ─────────────────────────────────────────────────────
 export const StatusBadge = ({ status }) => {
-  const map = { Paid:'badge-green', Partial:'badge-yellow', Pending:'badge-gray', Overdue:'badge-red' };
-  return <span className={`badge ${map[status]||'badge-gray'}`}>{status||'—'}</span>;
+  const map = {
+    Paid:'badge-green', Partial:'badge-yellow', Pending:'badge-gray', Overdue:'badge-red',
+    // Server Management
+    in_discussion:'badge-gray', client_denied:'badge-red', client_agreed:'badge-green',
+    active:'badge-green', past_due:'badge-yellow', canceled:'badge-gray',
+    draft:'badge-gray', sent:'badge-yellow', overdue:'badge-red', carried_forward:'badge-gray',
+    upcoming:'badge-gray', void:'badge-gray',
+  };
+  const lbl = {
+    in_discussion:'In Discussion', client_denied:'Client Denied', client_agreed:'Client Agreed',
+    past_due:'Past Due', carried_forward:'Carried Forward',
+  };
+  return <span className={`badge ${map[status]||'badge-gray'}`}>{lbl[status] || status || '—'}</span>;
 };
+export const AtRiskBadge = () => <span className="badge badge-orange">At Risk</span>;
 export const RoleBadge = ({ role }) => {
   const map = { super_admin:'badge-purple', sub_admin:'badge-blue', project_manager:'badge-green', coordinator:'badge-yellow' };
   const lbl = { super_admin:'Super Admin', sub_admin:'Sub Admin', project_manager:'PM', coordinator:'Coordinator' };
@@ -83,6 +150,19 @@ export const YEARS  = [2024,2025,2026,2027,2028];
 export const todayStr = () => new Date().toISOString().split('T')[0];
 export const CURRENT_MONTH = new Date().getMonth()+1;
 export const CURRENT_YEAR  = new Date().getFullYear();
+
+// ── Server Management: billing cycle options ────────────────────
+export const BILLING_INTERVALS = [
+  { val:'month',     label:'Monthly',     suffix:'mo'  },
+  { val:'quarter',   label:'Quarterly',   suffix:'qtr' },
+  { val:'half_year', label:'Half-Yearly', suffix:'6mo' },
+  { val:'year',      label:'Yearly',      suffix:'yr'  },
+];
+export const billingSuffix = (interval) => BILLING_INTERVALS.find(b => b.val === interval)?.suffix || 'mo';
+// monthlyPrice is always the MONTHLY rate — the amount actually charged per
+// cycle is that rate times however many months are in the billing interval.
+const CYCLE_MONTHS = { month: 1, quarter: 3, half_year: 6, year: 12 };
+export const cycleAmount = (monthlyPrice, interval) => Number(monthlyPrice || 0) * (CYCLE_MONTHS[interval] || 1);
 
 // ── Misc components ────────────────────────────────────────────
 export const Spinner   = ({ large }) => <div className={`spinner${large?' spinner-lg':''}`} />;

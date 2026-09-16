@@ -11,6 +11,7 @@ import LastPayments from './pages/LastPayments';
 import ActivityLogs from './pages/ActivityLogs';
 import Tasks from './pages/Tasks';
 import ProjectLookup from './pages/ProjectLookup';
+import ServerManagement from './pages/ServerManagement';
 import { Icon, Modal, Spinner, avatarColor } from './components/UI';
 import { authAPI, notificationsAPI } from './api';
 import './styles/global.css';
@@ -26,6 +27,9 @@ const NOTIF_ICONS = {
   project_assigned: { icon: '📁', color: '#7C3AED' },
   milestone_overdue:   { icon: '⚠️', color: '#DC2626' },
   milestone_due_soon:  { icon: '⏰', color: '#D97706' },
+  server_deal_created:    { icon: '🖥️', color: '#7C3AED' },
+  server_deal_reminder:   { icon: '🔔', color: '#D97706' },
+  server_subscription_started: { icon: '✅', color: '#059669' },
 };
 
 function fmtNotifTime(ts) {
@@ -281,6 +285,7 @@ function AppShell() {
     { id: 'reports',      icon: 'report',     label: 'Reports' },
     { id: 'tasks',        icon: 'check',      label: 'Tasks' },
     ...(isAdmin ? [{ id: 'activitylogs', icon: 'log', label: 'Activity Logs' }] : []),
+    { id: 'servermgmt',   icon: 'server',     label: 'Server Management' },
   ];
 
   const titles = {
@@ -289,6 +294,7 @@ function AppShell() {
     projectlookup: 'Project Lookup',
     lastpayments: 'Last Payments', reports: 'Reports',
     tasks: 'Tasks', activitylogs: 'Activity Logs',
+    servermgmt: 'Server Management',
   };
 
   const pendingCRs = crs.filter(c => c.status === 'pending').length;
@@ -318,6 +324,7 @@ function AppShell() {
       case 'reports':     return <Reports projects={projects} profiles={profiles} />;
       case 'tasks':        return <Tasks profiles={profiles} />;
       case 'activitylogs': return isAdmin ? <ActivityLogs /> : null;
+      case 'servermgmt':   return <ServerManagement profiles={profiles} />;
       default:            return null;
     }
   };

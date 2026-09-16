@@ -304,6 +304,161 @@ async function initDB() {
     `);
     await migrate(`ALTER TABLE project_comments ADD CONSTRAINT fk_pc_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE`);
 
+    // ── Server Management (deals → Stripe checkout → subscriptions → invoices) ──
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS server_deals (
+        id                          CHAR(36)      PRIMARY KEY DEFAULT (UUID()),
+        project_id                  CHAR(36)      NOT NULL,
+        plan_name                   VARCHAR(200)  DEFAULT NULL,
+        monthly_price               DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+        setup_fee                   DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+        billing_interval            ENUM('month','quarter','half_year','year') NOT NULL DEFAULT 'month',
+        status                      ENUM('in_discussion','client_denied','client_agreed') NOT NULL DEFAULT 'in_discussion',
+        denial_reason               TEXT          DEFAULT NULL,
+        notes                       TEXT          DEFAULT NULL,
+        target_date                 DATE          DEFAULT NULL,
+        stripe_checkout_session_id  VARCHAR(255)  DEFAULT NULL,
+        stripe_customer_id          VARCHAR(255)  DEFAULT NULL,
+        created_by                  CHAR(36)      DEFAULT NULL,
+        created_at                  DATETIME      DEFAULT CURRENT_TIMESTAMP,
+        updated_at                  DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_server_deals_project (project_id),
+        INDEX idx_server_deals_status  (status)
+      )
+    `);
+    await migrate(`ALTER TABLE server_deals ADD CONSTRAINT fk_server_deals_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE`);
+    await migrate(`ALTER TABLE server_deals ADD CONSTRAINT fk_server_deals_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL`);
+
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS server_deal_status_history (
+        id          CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+        deal_id     CHAR(36)     NOT NULL,
+        from_status VARCHAR(30)  DEFAULT NULL,
+        to_status   VARCHAR(30)  NOT NULL,
+        reason      TEXT         DEFAULT NULL,
+        changed_by  CHAR(36)     DEFAULT NULL,
+        created_at  DATETIME     DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_deal_history_deal (deal_id)
+      )
+    `);
+    await migrate(`ALTER TABLE server_deal_status_history ADD CONSTRAINT fk_dsh_deal FOREIGN KEY (deal_id) REFERENCES server_deals(id) ON DELETE CASCADE`);
+    await migrate(`ALTER TABLE server_deal_status_history ADD CONSTRAINT fk_dsh_changed_by FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL`);
+
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS server_subscriptions (
+        id                          CHAR(36)      PRIMARY KEY DEFAULT (UUID()),
+        deal_id                     CHAR(36)      NOT NULL UNIQUE,
+        project_id                  CHAR(36)      NOT NULL,
+        stripe_subscription_id      VARCHAR(255)  NOT NULL UNIQUE,
+        stripe_customer_id          VARCHAR(255)  NOT NULL,
+        client_email                VARCHAR(255)  DEFAULT NULL,
+        status                      ENUM('active','past_due','canceled') NOT NULL DEFAULT 'active',
+        monthly_price               DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+        billing_interval            ENUM('month','quarter','half_year','year') NOT NULL DEFAULT 'month',
+        current_period_start        DATE          DEFAULT NULL,
+        current_period_end          DATE          DEFAULT NULL,
+        next_invoice_date           DATE          DEFAULT NULL,
+        at_risk                     TINYINT(1)    NOT NULL DEFAULT 0,
+        consecutive_missed_cycles   TINYINT       NOT NULL DEFAULT 0,
+        canceled_at                 DATETIME      DEFAULT NULL,
+        created_at                  DATETIME      DEFAULT CURRENT_TIMESTAMP,
+        updated_at                  DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_subs_project (project_id),
+        INDEX idx_subs_status  (status)
+      )
+    `);
+    await migrate(`ALTER TABLE server_subscriptions ADD CONSTRAINT fk_subs_deal FOREIGN KEY (deal_id) REFERENCES server_deals(id) ON DELETE CASCADE`);
+    await migrate(`ALTER TABLE server_subscriptions ADD CONSTRAINT fk_subs_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE`);
+
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS invoices (
+        id                          CHAR(36)      PRIMARY KEY DEFAULT (UUID()),
+        subscription_id             CHAR(36)      NOT NULL,
+        project_id                  CHAR(36)      NOT NULL,
+        invoice_number              VARCHAR(40)   NOT NULL UNIQUE,
+        period_start                DATE          DEFAULT NULL,
+        period_end                  DATE          DEFAULT NULL,
+        due_date                    DATE          NOT NULL,
+        subtotal                    DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+        total                       DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+        amount_paid                 DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+        status                      ENUM('draft','pending','sent','paid','overdue','carried_forward','void') NOT NULL DEFAULT 'draft',
+        carried_forward_to          CHAR(36)      DEFAULT NULL,
+        stripe_invoice_id           VARCHAR(255)  DEFAULT NULL,
+        stripe_payment_intent_id    VARCHAR(255)  DEFAULT NULL,
+        stripe_hosted_invoice_url   VARCHAR(500)  DEFAULT NULL,
+        paid_at                     DATETIME      DEFAULT NULL,
+        sent_at                     DATETIME      DEFAULT NULL,
+        created_at                  DATETIME      DEFAULT CURRENT_TIMESTAMP,
+        updated_at                  DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_invoices_subscription (subscription_id),
+        INDEX idx_invoices_project      (project_id),
+        INDEX idx_invoices_status       (status),
+        INDEX idx_invoices_due_date     (due_date)
+      )
+    `);
+    await migrate(`ALTER TABLE invoices ADD CONSTRAINT fk_invoices_subscription FOREIGN KEY (subscription_id) REFERENCES server_subscriptions(id) ON DELETE CASCADE`);
+    await migrate(`ALTER TABLE invoices ADD CONSTRAINT fk_invoices_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE`);
+    await migrate(`ALTER TABLE invoices ADD CONSTRAINT fk_invoices_carried_forward_to FOREIGN KEY (carried_forward_to) REFERENCES invoices(id) ON DELETE SET NULL`);
+
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS invoice_line_items (
+        id                 CHAR(36)      PRIMARY KEY DEFAULT (UUID()),
+        invoice_id         CHAR(36)      NOT NULL,
+        description        VARCHAR(255)  NOT NULL,
+        amount             DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+        source_invoice_id  CHAR(36)      DEFAULT NULL,
+        is_carry_forward   TINYINT(1)    NOT NULL DEFAULT 0,
+        created_at         DATETIME      DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_line_items_invoice (invoice_id)
+      )
+    `);
+    await migrate(`ALTER TABLE invoice_line_items ADD CONSTRAINT fk_li_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE`);
+    await migrate(`ALTER TABLE invoice_line_items ADD CONSTRAINT fk_li_source_invoice FOREIGN KEY (source_invoice_id) REFERENCES invoices(id) ON DELETE SET NULL`);
+
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS payment_reminders (
+        id             CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+        invoice_id     CHAR(36)     NOT NULL,
+        reminder_type  ENUM('day_after_due','followup') NOT NULL DEFAULT 'day_after_due',
+        sent_to        VARCHAR(255) NOT NULL,
+        sent_at        DATETIME     DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_reminders_invoice      (invoice_id),
+        INDEX idx_reminders_invoice_date (invoice_id, sent_at)
+      )
+    `);
+    await migrate(`ALTER TABLE payment_reminders ADD CONSTRAINT fk_reminders_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE`);
+
+    // Widen billing_interval to support Quarterly / Half-Yearly plans (added after initial launch).
+    await migrate(`ALTER TABLE server_deals MODIFY COLUMN billing_interval ENUM('month','quarter','half_year','year') NOT NULL DEFAULT 'month'`);
+    await migrate(`ALTER TABLE server_subscriptions MODIFY COLUMN billing_interval ENUM('month','quarter','half_year','year') NOT NULL DEFAULT 'month'`);
+    // Plan/price are decided once the client agrees, not at deal creation — allow deferring them.
+    await migrate(`ALTER TABLE server_deals MODIFY COLUMN plan_name VARCHAR(200) DEFAULT NULL`);
+    // Expected decision date + a comment thread on each deal.
+    await migrate(`ALTER TABLE server_deals ADD COLUMN target_date DATE DEFAULT NULL`);
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS server_deal_comments (
+        id         CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+        deal_id    CHAR(36)     NOT NULL,
+        user_id    CHAR(36)     DEFAULT NULL,
+        user_name  VARCHAR(120) NOT NULL,
+        user_role  VARCHAR(50)  NOT NULL,
+        comment    TEXT         NOT NULL,
+        created_at DATETIME     DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_sdc_deal (deal_id)
+      )
+    `);
+    await migrate(`ALTER TABLE server_deal_comments ADD CONSTRAINT fk_sdc_deal FOREIGN KEY (deal_id) REFERENCES server_deals(id) ON DELETE CASCADE`);
+
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS stripe_webhook_events (
+        id              CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+        stripe_event_id VARCHAR(255) NOT NULL UNIQUE,
+        event_type      VARCHAR(100) NOT NULL,
+        processed_at    DATETIME     DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     console.log('✅  Database schema initialised');
   } catch (err) {
     console.error('❌  Schema init error:', err.message);
