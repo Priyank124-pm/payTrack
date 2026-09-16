@@ -24,6 +24,8 @@
   --info-lt:     #E0F2FE;
   --purple:      #7C3AED;
   --purple-lt:   #EDE9FE;
+  --orange:      #C2410C;
+  --orange-lt:   #FFEDD5;
   --shadow-sm:   0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
   --shadow:      0 4px 12px rgba(0,0,0,.08),0 2px 4px rgba(0,0,0,.04);
   --shadow-lg:   0 10px 30px rgba(0,0,0,.10),0 4px 8px rgba(0,0,0,.06);
@@ -94,6 +96,7 @@ tr:hover td{background:var(--surface2)}
 .badge-purple{background:var(--purple-lt); color:var(--purple)}
 .badge-gray  {background:var(--surface2);  color:var(--text3);border:1px solid var(--border)}
 .badge-indigo{background:var(--primary-lt);color:var(--primary)}
+.badge-orange{background:var(--orange-lt); color:var(--orange)}
 
 /* Buttons */
 .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 15px;border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;border:none;white-space:nowrap}

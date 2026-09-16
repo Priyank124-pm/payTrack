@@ -1,69 +1,10 @@
 import React, { useState } from 'react';
-import { Modal, Icon, Avatar, fmt, pct, ProgressBar, EmptyState, Spinner } from '../components/UI';
+import { Modal, Icon, Avatar, fmt, pct, ProgressBar, EmptyState, Spinner, ActionsMenu } from '../components/UI';
 import { useAuth } from '../context/AuthContext';
 import { PORTALS, COMMISSION_PORTALS, calcNet } from '../hooks/useData';
 import { projectsAPI } from '../api';
 
 const TYPES = ['Monthly','Hourly','Milestone'];
-
-// ── Actions dropdown ───────────────────────────────────────────
-function ActionsMenu({ items }) {
-  const [pos,  setPos]  = React.useState(null);
-  const btnRef  = React.useRef(null);
-  const menuRef = React.useRef(null);
-
-  const handleOpen = e => {
-    e.stopPropagation();
-    if (pos) { setPos(null); return; }
-    const r = btnRef.current.getBoundingClientRect();
-    setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
-  };
-
-  React.useEffect(() => {
-    if (!pos) return;
-    const handler = e => {
-      if (menuRef.current && !menuRef.current.contains(e.target) && !btnRef.current.contains(e.target))
-        setPos(null);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [pos]);
-
-  const visible = items.filter(Boolean);
-
-  return (
-    <>
-      <button
-        ref={btnRef}
-        className="btn btn-sm btn-ghost"
-        style={{ gap: 5 }}
-        onClick={handleOpen}
-      >
-        Actions
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
-      </button>
-      {pos && (
-        <div
-          ref={menuRef}
-          style={{ position:'fixed', top: pos.top, right: pos.right, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius)', boxShadow:'var(--shadow-lg)', zIndex:9999, minWidth:210, overflow:'hidden' }}
-        >
-          {visible.map((item, i) => (
-            <button
-              key={i}
-              onClick={e => { e.stopPropagation(); setPos(null); item.onClick(); }}
-              style={{ display:'flex', alignItems:'center', gap:10, width:'100%', padding:'10px 14px', background:'none', border:'none', borderBottom: i < visible.length - 1 ? '1px solid var(--border)' : 'none', cursor:'pointer', fontSize:13, color: item.danger ? 'var(--danger)' : 'var(--text)', fontFamily:'Inter,sans-serif', textAlign:'left' }}
-              onMouseOver={e => e.currentTarget.style.background = item.danger ? 'var(--danger-lt)' : 'var(--surface2)'}
-              onMouseOut={e  => e.currentTarget.style.background = 'none'}
-            >
-              <span style={{ color: item.danger ? 'var(--danger)' : 'var(--text3)', display:'flex', flexShrink:0 }}><Icon name={item.icon} size={14} /></span>
-              {item.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
 
 // ── CSV helpers ────────────────────────────────────────────────
 function parseCSV(text) {
