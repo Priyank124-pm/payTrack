@@ -11,6 +11,11 @@ app.use(cors({
   origin:      process.env.CLIENT_URL || 'http://localhost:3000',
   credentials: true,
 }));
+
+// Stripe webhook needs the raw request body for signature verification —
+// must be mounted BEFORE express.json() consumes it.
+app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }), require('./routes/stripeWebhook'));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -32,6 +37,9 @@ app.use('/api/reports',         require('./routes/reports'));
 app.use('/api/notifications',   require('./routes/notifications'));
 app.use('/api/activity-logs',   require('./routes/activityLogs'));
 app.use('/api/tasks',           require('./routes/tasks'));
+app.use('/api/server-deals',         require('./routes/serverDeals'));
+app.use('/api/server-subscriptions', require('./routes/serverSubscriptions'));
+app.use('/api/invoices',             require('./routes/invoices'));
 
 // ── Health check ───────────────────────────────────────────────
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
@@ -50,6 +58,8 @@ app.use((err, _req, res, _next) => {
   await initDB();
   const { startScheduler } = require('./services/notificationScheduler');
   startScheduler();
+  const { startBillingScheduler } = require('./services/billingScheduler');
+  startBillingScheduler();
   app.listen(PORT, () => {
     console.log(`🚀  NexPortal API running on http://localhost:${PORT}`);
     console.log(`   CLIENT_URL = ${process.env.CLIENT_URL || 'http://localhost:3000'}`);
