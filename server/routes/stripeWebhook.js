@@ -51,7 +51,18 @@ router.post('/', async (req, res) => {
 async function handleCheckoutCompleted(session) {
   if (session.mode !== 'subscription' || !session.subscription) return;
 
-  const dealId = session.metadata?.deal_id;
+  let dealId = session.metadata?.deal_id;
+  let project = null;
+
+  if (!dealId && session.metadata?.source === 'public_signup') {
+    // Public-site self-serve plan purchase — nothing exists yet. Only create
+    // the project/deal once payment is confirmed (here), so an abandoned
+    // Stripe checkout never leaves a stray "paid" deal behind.
+    const created = await createDealFromPublicSignup(session);
+    if (!created) return;
+    dealId = created.deal.id;
+    project = created.project;
+  }
   if (!dealId) return;
 
   const [existing] = await pool.query('SELECT id FROM server_subscriptions WHERE deal_id = ?', [dealId]);
@@ -59,7 +70,71 @@ async function handleCheckoutCompleted(session) {
 
   const [[deal]] = await pool.query('SELECT * FROM server_deals WHERE id = ?', [dealId]);
   if (!deal) return;
+  if (!project) {
+    const [[p]] = await pool.query('SELECT * FROM projects WHERE id = ?', [deal.project_id]);
+    project = p;
+  }
 
+  await activateSubscription({ deal, project, session });
+}
+
+// ── Public site: create the project + deal lazily, only on confirmed payment ──
+// By this point Stripe's own hosted checkout has already collected the
+// customer's email, so we don't need a placeholder to fill in later.
+async function createDealFromPublicSignup(session) {
+  const [existingDeal] = await pool.query('SELECT * FROM server_deals WHERE stripe_checkout_session_id = ?', [session.id]);
+  if (existingDeal.length) {
+    const [[project]] = await pool.query('SELECT * FROM projects WHERE id = ?', [existingDeal[0].project_id]);
+    return { deal: existingDeal[0], project };
+  }
+
+  const { plan, amount, billing_interval: billingInterval } = session.metadata;
+  if (!plan || !amount) return null;
+
+  const [[admin]] = await pool.query(`SELECT id FROM users WHERE role = 'super_admin' ORDER BY created_at ASC LIMIT 1`);
+  if (!admin) {
+    console.error('[Stripe webhook] No super_admin found to own the auto-created project — skipping');
+    return null;
+  }
+
+  const email = session.customer_details?.email || 'Unknown';
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query(
+      `INSERT INTO projects (id, name, client, type, portal, manager_id, status)
+       VALUES (UUID(), ?, ?, 'Monthly', 'Direct', ?, 'server')`,
+      [`${plan} Hosting`, email, admin.id]
+    );
+    const [[project]] = await conn.query('SELECT * FROM projects WHERE manager_id = ? ORDER BY created_at DESC LIMIT 1', [admin.id]);
+
+    await conn.query(
+      `INSERT INTO server_deals (id, project_id, plan_name, monthly_price, setup_fee, billing_interval, status, notes, stripe_checkout_session_id)
+       VALUES (UUID(), ?, ?, ?, 0, ?, 'client_agreed', 'Auto-created from website checkout', ?)`,
+      [project.id, plan, amount, billingInterval, session.id]
+    );
+    const [[deal]] = await conn.query('SELECT * FROM server_deals WHERE project_id = ? ORDER BY created_at DESC LIMIT 1', [project.id]);
+
+    await conn.query(
+      `INSERT INTO server_deal_status_history (id, deal_id, from_status, to_status, reason)
+       VALUES (UUID(), ?, NULL, 'client_agreed', 'Website checkout completed')`,
+      [deal.id]
+    );
+
+    await conn.commit();
+    return { deal, project };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+// ── Shared: turn a completed Checkout Session into a live subscription ────
+// Used by both the admin-created-deal path and the public-signup path above.
+async function activateSubscription({ deal, project, session }) {
   const stripeSub = await stripeService.stripe.subscriptions.retrieve(session.subscription);
   await stripeService.pauseSubscriptionCollection(session.subscription);
 
@@ -77,12 +152,12 @@ async function handleCheckoutCompleted(session) {
   );
   const [[newSub]] = await pool.query('SELECT id FROM server_subscriptions WHERE deal_id = ?', [deal.id]);
 
-  // Checkout already collected the first cycle's payment (+ setup fee) via
-  // Stripe's own subscription-mode Invoice — mirror it into our own invoices
-  // table (already paid) so it shows up in Invoice History / the Payments
+  // Checkout already collected the first cycle's payment via Stripe's own
+  // subscription-mode Invoice — mirror it into our own invoices table
+  // (already paid) so it shows up in Invoice History / the Payments
   // dashboard immediately, same as every later scheduler-generated invoice.
-  // Read amounts/line items straight off the Stripe invoice (ground truth for
-  // what was actually charged) rather than recomputing them ourselves.
+  // Read amounts/line items straight off the Stripe invoice (ground truth
+  // for what was actually charged) rather than recomputing them ourselves.
   if (session.invoice) {
     try {
       const stripeInvoice = await stripeService.retrieveInvoice(session.invoice);
@@ -107,17 +182,16 @@ async function handleCheckoutCompleted(session) {
     }
   }
 
-  const [[proj]] = await pool.query('SELECT * FROM projects WHERE id = ?', [deal.project_id]);
   await logActivity({
     user: { id: null, name: 'Stripe', role: 'system' },
     action: 'subscribed', entity: 'server_subscription', entityId: deal.id,
-    detail: `Subscription started for '${proj?.name}' (${deal.plan_name})`,
+    detail: `Subscription started for '${project?.name}' (${deal.plan_name})`,
   });
-  if (proj?.manager_id) {
-    await notify(proj.manager_id, {
+  if (project?.manager_id) {
+    await notify(project.manager_id, {
       type: 'server_subscription_started', entityType: 'server_deal', entityId: deal.id,
       title: 'Client subscribed to server plan',
-      body: `${proj.client} completed checkout for '${deal.plan_name}' on ${proj.name}`,
+      body: `${project.client} completed checkout for '${deal.plan_name}' on ${project.name}`,
     });
   }
 }

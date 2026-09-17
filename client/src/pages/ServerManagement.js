@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Icon } from '../components/UI';
+import ContactRequests from './ContactRequests';
 import ServerDeals from './ServerDeals';
 import SubscribedClients from './SubscribedClients';
 import ServerPayments from './ServerPayments';
@@ -26,11 +27,15 @@ export default function ServerManagement({ profiles = [] }) {
         <button style={TAB_STYLE(tab === 'payments')} onClick={() => setTab('payments')}>
           <Icon name="money" size={14} />Payments
         </button>
+        <button style={TAB_STYLE(tab === 'contact')} onClick={() => setTab('contact')}>
+          <Icon name="comment" size={14} />Contact Requests
+        </button>
       </div>
 
       {tab === 'deals'    && <ServerDeals />}
       {tab === 'clients'  && <SubscribedClients profiles={profiles} />}
       {tab === 'payments' && <ServerPayments profiles={profiles} />}
+      {tab === 'contact'  && <ContactRequests />}
     </div>
   );
 }
