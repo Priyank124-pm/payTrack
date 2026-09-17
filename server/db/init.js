@@ -459,6 +459,21 @@ async function initDB() {
       )
     `);
 
+    // ── Public site: "Contact Us" / "Talk to our team" submissions ──
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS contact_requests (
+        id          CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+        name        VARCHAR(150) NOT NULL,
+        email       VARCHAR(255) NOT NULL,
+        company     VARCHAR(150) DEFAULT NULL,
+        message     TEXT         DEFAULT NULL,
+        status      ENUM('new','contacted','closed') NOT NULL DEFAULT 'new',
+        created_at  DATETIME     DEFAULT CURRENT_TIMESTAMP,
+        updated_at  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_contact_requests_status (status)
+      )
+    `);
+
     console.log('✅  Database schema initialised');
   } catch (err) {
     console.error('❌  Schema init error:', err.message);

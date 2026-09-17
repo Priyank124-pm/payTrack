@@ -10,7 +10,7 @@ const TAB_STYLE = (active) => ({
 });
 
 // ── New Deal modal ────────────────────────────────────────────
-function ProjectPicker({ project, onSelect }) {
+export function ProjectPicker({ project, onSelect }) {
   const [allProjects, setAllProjects] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [query, setQuery]   = useState('');

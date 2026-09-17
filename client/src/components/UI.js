@@ -117,6 +117,9 @@ export const StatusBadge = ({ status }) => {
     active:'badge-green', past_due:'badge-yellow', canceled:'badge-gray',
     draft:'badge-gray', sent:'badge-yellow', overdue:'badge-red', carried_forward:'badge-gray',
     upcoming:'badge-gray', void:'badge-gray',
+    paid:'badge-green', pending:'badge-gray', failed:'badge-red',
+    // Contact requests
+    new:'badge-blue', contacted:'badge-yellow', closed:'badge-gray',
   };
   const lbl = {
     in_discussion:'In Discussion', client_denied:'Client Denied', client_agreed:'Client Agreed',
