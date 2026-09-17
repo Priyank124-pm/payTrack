@@ -150,3 +150,9 @@ export const invoicesAPI = {
   resend:         (id)          => post(`/api/invoices/${id}/resend`),
   markPaidManual: (id)          => post(`/api/invoices/${id}/mark-paid-manual`),
 };
+
+// ── Server Management: Contact Requests (public-site "Talk to our team") ──
+export const contactRequestsAPI = {
+  list:         ()          => get('/api/contact-requests'),
+  updateStatus: (id, status) => patch(`/api/contact-requests/${id}/status`, { status }),
+};

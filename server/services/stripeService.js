@@ -64,6 +64,27 @@ async function createCheckoutSession({ deal, project, customerEmail }) {
   return session;
 }
 
+// ── Public site: fixed-catalog plan checkout (no project/deal involved) ──
+// Stripe's own hosted Checkout page collects the customer's email — we never
+// ask for it ourselves, so no email is passed in here.
+async function createPlanCheckoutSession({ planName, amount, billingInterval, successUrl, cancelUrl, metadata }) {
+  return stripe.checkout.sessions.create({
+    mode: 'subscription',
+    line_items: [{
+      price_data: {
+        currency: 'usd',
+        product_data: { name: planName },
+        unit_amount: toCents(amount),
+        recurring: toStripeRecurring(billingInterval),
+      },
+      quantity: 1,
+    }],
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    metadata,
+  });
+}
+
 async function retrieveSession(sessionId) {
   return stripe.checkout.sessions.retrieve(sessionId);
 }
@@ -126,6 +147,7 @@ module.exports = {
   toCents,
   cycleAmount,
   createCheckoutSession,
+  createPlanCheckoutSession,
   retrieveSession,
   retrieveCustomer,
   retrieveInvoice,

@@ -30,6 +30,7 @@ const NOTIF_ICONS = {
   server_deal_created:    { icon: '🖥️', color: '#7C3AED' },
   server_deal_reminder:   { icon: '🔔', color: '#D97706' },
   server_subscription_started: { icon: '✅', color: '#059669' },
+  contact_request: { icon: '📩', color: '#0284C7' },
 };
 
 function fmtNotifTime(ts) {
