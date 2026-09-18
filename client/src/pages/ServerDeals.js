@@ -280,6 +280,40 @@ function DenyModal({ deal, onClose, onDone }) {
   );
 }
 
+// ── Delete-with-reason modal ──────────────────────────────────
+function DeleteModal({ deal, onClose, onDone }) {
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState('');
+
+  const submit = async () => {
+    if (!reason.trim()) return setError('A reason is required.');
+    setSaving(true); setError('');
+    try {
+      await serverDealsAPI.remove(deal.id, reason.trim());
+      onDone();
+      onClose();
+    } catch (e) { setError(e.message); } finally { setSaving(false); }
+  };
+
+  return (
+    <Modal title="Delete Deal" onClose={onClose} small footer={<>
+      <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+      <button className="btn btn-danger" onClick={submit} disabled={saving}>{saving ? <Spinner /> : 'Delete Deal'}</button>
+    </>}>
+      {error && <div className="alert alert-error" style={{ marginBottom: 14 }}><Icon name="warning" size={13} />{error}</div>}
+      <div className="info-box" style={{ marginBottom: 14 }}>
+        <Icon name="info" size={13} />
+        <span>This deal for <strong>{deal.project_name}</strong> will move to the Deleted tab. It won't affect any subscription already created from it.</span>
+      </div>
+      <div className="form-group">
+        <label className="form-label">Reason *</label>
+        <textarea className="form-control" rows={3} autoFocus value={reason} onChange={e => setReason(e.target.value)} placeholder="Why is this deal being deleted?" />
+      </div>
+    </Modal>
+  );
+}
+
 // ── Checkout link modal (shown once a deal is marked Client Agreed) ──
 function CheckoutModal({ deal, url, onClose }) {
   const [copied, setCopied] = useState(false);
@@ -419,7 +453,7 @@ function HistoryModal({ dealId, onClose }) {
 export default function ServerDeals() {
   const { isAdmin } = useAuth();
   const [tab, setTab]       = useState('all');
-  const [deals, setDeals]   = useState([]);
+  const [allDeals, setAllDeals] = useState([]); // full dataset (non-deleted + deleted) — counts & tab rows both derive from this
   const [loading, setLoading] = useState(true);
   const [modal, setModal]   = useState(null);
   const [activeDeal, setActiveDeal] = useState(null);
@@ -427,17 +461,27 @@ export default function ServerDeals() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { setDeals(await serverDealsAPI.list(tab === 'all' ? {} : { status: tab })); }
-    catch (_) {} finally { setLoading(false); }
-  }, [tab]);
+    try {
+      const [live, deleted] = await Promise.all([
+        serverDealsAPI.list({}),
+        serverDealsAPI.list({ status: 'deleted' }),
+      ]);
+      setAllDeals([...live, ...deleted]);
+    } catch (_) {} finally { setLoading(false); }
+  }, []);
   useEffect(() => { load(); }, [load]);
 
   const counts = {
-    all: deals.length,
-    in_discussion: deals.filter(d => d.status === 'in_discussion').length,
-    client_agreed: deals.filter(d => d.status === 'client_agreed').length,
-    client_denied: deals.filter(d => d.status === 'client_denied').length,
+    all: allDeals.filter(d => !d.deleted_at).length,
+    in_discussion: allDeals.filter(d => !d.deleted_at && d.status === 'in_discussion').length,
+    client_agreed: allDeals.filter(d => !d.deleted_at && d.status === 'client_agreed').length,
+    client_denied: allDeals.filter(d => !d.deleted_at && d.status === 'client_denied').length,
+    deleted: allDeals.filter(d => d.deleted_at).length,
   };
+
+  const deals = tab === 'deleted' ? allDeals.filter(d => d.deleted_at)
+    : tab === 'all' ? allDeals.filter(d => !d.deleted_at)
+    : allDeals.filter(d => !d.deleted_at && d.status === tab);
 
   const reopen = async (deal) => {
     try { await serverDealsAPI.updateStatus(deal.id, { status: 'in_discussion' }); load(); }
@@ -475,44 +519,71 @@ export default function ServerDeals() {
         <button style={TAB_STYLE(tab === 'in_discussion')} onClick={() => setTab('in_discussion')}>In Discussion ({counts.in_discussion})</button>
         <button style={TAB_STYLE(tab === 'client_agreed')} onClick={() => setTab('client_agreed')}>Client Agreed ({counts.client_agreed})</button>
         <button style={TAB_STYLE(tab === 'client_denied')} onClick={() => setTab('client_denied')}>Client Denied ({counts.client_denied})</button>
+        <button style={TAB_STYLE(tab === 'deleted')} onClick={() => setTab('deleted')}>Deleted ({counts.deleted})</button>
       </div>
 
       <div className="card">
         <div className="table-wrap"><table>
-          <thead><tr>
-            <th>Project</th><th>Client</th><th>PM</th><th>Status</th><th>Target Date</th><th>Price (per cycle)</th><th>Created</th>
-            <th style={{ textAlign: 'right' }}>Actions</th>
-          </tr></thead>
-          <tbody>
-            {loading && <tr><td colSpan={8}><Spinner large /></td></tr>}
-            {!loading && deals.length === 0 && <tr><td colSpan={8}><EmptyState icon="🖥️" message="No server deals yet" /></td></tr>}
-            {!loading && deals.map(d => (
-              <tr key={d.id}>
-                <td style={{ fontWeight: 600 }}>{d.project_name}</td>
-                <td>{d.client_name}</td>
-                <td>{d.pm_name ? <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar name={d.pm_name} id={d.manager_id} size={22} />{d.pm_name}</div> : '—'}</td>
-                <td><StatusBadge status={d.status} /></td>
-                <td>{d.target_date ? new Date(d.target_date).toLocaleDateString() : <span style={{ color: 'var(--text4)' }}>—</span>}</td>
-                <td className="mono">
-                  {d.monthly_price > 0
-                    ? <>{fmt(cycleAmount(d.monthly_price, d.billing_interval))}/{billingSuffix(d.billing_interval)}</>
-                    : <span style={{ color: 'var(--text4)', fontWeight: 400 }}>Not set yet</span>}
-                </td>
-                <td>{new Date(d.created_at).toLocaleDateString()}</td>
-                <td style={{ textAlign: 'right' }}>
-                  <ActionsMenu items={[
-                    { icon: 'log', label: 'View History & Comments', onClick: () => { setActiveDeal(d); setModal('history'); } },
-                    d.status === 'in_discussion' && { icon: 'edit', label: 'Edit Deal', onClick: () => { setActiveDeal(d); setModal('edit'); } },
-                    d.status === 'in_discussion' && { icon: 'check', label: 'Mark Client Agreed', onClick: () => { setActiveDeal(d); setModal('agree'); } },
-                    d.status === 'in_discussion' && { icon: 'close', label: 'Mark Client Denied', onClick: () => { setActiveDeal(d); setModal('deny'); }, danger: true },
-                    d.status === 'client_denied' && { icon: 'restore', label: 'Reopen (In Discussion)', onClick: () => reopen(d) },
-                    d.status === 'client_agreed' && { icon: 'send', label: 'View / Resend Checkout Link', onClick: () => viewCheckoutLink(d) },
-                    isAdmin && d.pm_name && { icon: 'send', label: `Remind ${d.pm_name}`, onClick: () => remindPM(d) },
-                  ]} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
+          {tab === 'deleted' ? (
+            <>
+              <thead><tr>
+                <th>Project</th><th>Client</th><th>PM</th><th>Status Before Delete</th><th>Reason</th><th>Deleted By</th><th>Deleted On</th>
+              </tr></thead>
+              <tbody>
+                {loading && <tr><td colSpan={7}><Spinner large /></td></tr>}
+                {!loading && deals.length === 0 && <tr><td colSpan={7}><EmptyState icon="🗑️" message="No deleted deals" /></td></tr>}
+                {!loading && deals.map(d => (
+                  <tr key={d.id}>
+                    <td style={{ fontWeight: 600 }}>{d.project_name}</td>
+                    <td>{d.client_name}</td>
+                    <td>{d.pm_name ? <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar name={d.pm_name} id={d.manager_id} size={22} />{d.pm_name}</div> : '—'}</td>
+                    <td><StatusBadge status={d.status} /></td>
+                    <td style={{ maxWidth: 260 }}>{d.deleted_reason}</td>
+                    <td>{d.deleted_by_name || '—'}</td>
+                    <td>{d.deleted_at ? new Date(d.deleted_at).toLocaleDateString() : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </>
+          ) : (
+            <>
+              <thead><tr>
+                <th>Project</th><th>Client</th><th>PM</th><th>Status</th><th>Target Date</th><th>Price (per cycle)</th><th>Created</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
+              </tr></thead>
+              <tbody>
+                {loading && <tr><td colSpan={8}><Spinner large /></td></tr>}
+                {!loading && deals.length === 0 && <tr><td colSpan={8}><EmptyState icon="🖥️" message="No server deals yet" /></td></tr>}
+                {!loading && deals.map(d => (
+                  <tr key={d.id}>
+                    <td style={{ fontWeight: 600 }}>{d.project_name}</td>
+                    <td>{d.client_name}</td>
+                    <td>{d.pm_name ? <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar name={d.pm_name} id={d.manager_id} size={22} />{d.pm_name}</div> : '—'}</td>
+                    <td><StatusBadge status={d.status} /></td>
+                    <td>{d.target_date ? new Date(d.target_date).toLocaleDateString() : <span style={{ color: 'var(--text4)' }}>—</span>}</td>
+                    <td className="mono">
+                      {d.monthly_price > 0
+                        ? <>{fmt(cycleAmount(d.monthly_price, d.billing_interval))}/{billingSuffix(d.billing_interval)}</>
+                        : <span style={{ color: 'var(--text4)', fontWeight: 400 }}>Not set yet</span>}
+                    </td>
+                    <td>{new Date(d.created_at).toLocaleDateString()}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <ActionsMenu items={[
+                        { icon: 'log', label: 'View History & Comments', onClick: () => { setActiveDeal(d); setModal('history'); } },
+                        d.status === 'in_discussion' && { icon: 'edit', label: 'Edit Deal', onClick: () => { setActiveDeal(d); setModal('edit'); } },
+                        d.status === 'in_discussion' && { icon: 'check', label: 'Mark Client Agreed', onClick: () => { setActiveDeal(d); setModal('agree'); } },
+                        d.status === 'in_discussion' && { icon: 'close', label: 'Mark Client Denied', onClick: () => { setActiveDeal(d); setModal('deny'); }, danger: true },
+                        d.status === 'client_denied' && { icon: 'restore', label: 'Reopen (In Discussion)', onClick: () => reopen(d) },
+                        d.status === 'client_agreed' && { icon: 'send', label: 'View / Resend Checkout Link', onClick: () => viewCheckoutLink(d) },
+                        isAdmin && d.pm_name && { icon: 'send', label: `Remind ${d.pm_name}`, onClick: () => remindPM(d) },
+                        isAdmin && { icon: 'delete', label: 'Delete Deal', onClick: () => { setActiveDeal(d); setModal('delete'); }, danger: true },
+                      ]} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </>
+          )}
         </table></div>
       </div>
 
@@ -526,6 +597,7 @@ export default function ServerDeals() {
         />
       )}
       {modal === 'deny'   && <DenyModal deal={activeDeal} onClose={() => setModal(null)} onDone={load} />}
+      {modal === 'delete' && <DeleteModal deal={activeDeal} onClose={() => setModal(null)} onDone={load} />}
       {modal === 'checkout' && <CheckoutModal deal={activeDeal} url={checkoutUrl} onClose={() => setModal(null)} />}
       {modal === 'history' && <HistoryModal dealId={activeDeal.id} onClose={() => setModal(null)} />}
     </div>

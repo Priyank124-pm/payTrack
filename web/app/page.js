@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState } from "react";
 import Image from "next/image";
 
 // ── Small inline icon set (keeps this page dependency-free) ──────
@@ -39,45 +39,6 @@ const Icon = ({ name, size = 18 }) => (
   </svg>
 );
 
-const PLANS = [
-  {
-    key: "Starter",
-    price: 99,
-    features: [
-      "Managed server infrastructure",
-      "Server setup and configuration",
-      "SSL certificate (Let's Encrypt)",
-      "Server monitoring",
-      "Security updates",
-      "Daily backups",
-    ],
-  },
-  {
-    key: "Professional",
-    price: 199,
-    featured: true,
-    features: [
-      "Managed server infrastructure",
-      "Server setup and configuration",
-      "SSL certificate (Let's Encrypt)",
-      "Server monitoring",
-      "Security updates",
-      "Priority support",
-    ],
-  },
-  {
-    key: "Business",
-    price: 399,
-    features: [
-      "Managed server infrastructure",
-      "Server setup and configuration",
-      "SSL certificate (Let's Encrypt)",
-      "Server monitoring",
-      "Security updates",
-      "Dedicated support",
-    ],
-  },
-];
 
 const FAQS = [
   {
@@ -144,7 +105,6 @@ function Header({ onGetStarted }) {
           <a href="#top">Home</a>
           <a href="#features">Features</a>
           <a href="#hosting">Hosting Plans</a>
-          <a href="#pricing">Pricing</a>
           <a href="#faq">FAQ</a>
           <a href="#contact">Contact</a>
         </nav>
@@ -181,9 +141,6 @@ function Header({ onGetStarted }) {
           <a href="#hosting" onClick={() => setOpen(false)}>
             Hosting Plans
           </a>
-          <a href="#pricing" onClick={() => setOpen(false)}>
-            Pricing
-          </a>
           <a href="#faq" onClick={() => setOpen(false)}>
             FAQ
           </a>
@@ -197,7 +154,7 @@ function Header({ onGetStarted }) {
   );
 }
 
-function Hero({ onGetStarted, onViewPlans }) {
+function Hero({ onGetStarted }) {
   return (
     <section className="hero" id="top">
       <div className="wrap hero-grid">
@@ -226,9 +183,6 @@ function Hero({ onGetStarted, onViewPlans }) {
           <div className="hero-cta">
             <button className="btn btn-primary" onClick={onGetStarted}>
               Get Started →
-            </button>
-            <button className="btn btn-outline" onClick={onViewPlans}>
-              View Plans
             </button>
           </div>
         </div>
@@ -625,76 +579,6 @@ function WhyManaged() {
   );
 }
 
-function Pricing({ onSelectPlan, checkingOut, onContact }) {
-  return (
-    <section className="section section-soft" id="pricing">
-      <div className="wrap">
-        <div className="pricing-header">
-          <div>
-            <p className="pricing-eyebrow">Simple, transparent pricing</p>
-            <h2>Managed Hosting Plans</h2>
-            <p className="pricing-subtitle">
-              Everything you need to have your hosting environment running and
-              your technical team.
-            </p>
-          </div>
-          <a href="#faq" className="faq-link">
-            View All FAQs <span>→</span>
-          </a>
-        </div>
-        <div className="pricing-grid">
-          {PLANS.map((p) => (
-            <div
-              className={`plan-card${p.featured ? " popular-plan" : ""}`}
-              key={p.key}
-            >
-              {p.featured && (
-                <span className="popular-badge">Most Popular</span>
-              )}
-              <div className="plan-content">
-                <h3>{p.key}</h3>
-                <div className="price">
-                  <span className="price-amount">${p.price}</span>
-                  <span className="price-period">/month</span>
-                </div>
-                <ul className="plan-features">
-                  {p.features.map((f) => (
-                    <li key={f}>{f}</li>
-                  ))}
-                </ul>
-              </div>
-              <button
-                className={`plan-button${p.featured ? " primary-button" : ""}`}
-                disabled={checkingOut === p.key}
-                onClick={() => onSelectPlan(p.key)}
-              >
-                {checkingOut === p.key ? "Redirecting…" : "Get Started"}
-              </button>
-            </div>
-          ))}
-          <div className="custom-card">
-            <div className="custom-icon">
-              <Icon name="monitor" size={40} />
-            </div>
-            <h3>Need a custom setup?</h3>
-            <p>
-              We also provide custom plans for high-traffic and enterprise
-              projects.
-            </p>
-            <a
-              href="#contact"
-              className="plan-button custom-button"
-              onClick={onContact}
-            >
-              Contact Us
-            </a>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function FAQ() {
   const [openIdx, setOpenIdx] = useState(null);
   return (
@@ -979,68 +863,25 @@ const inputStyle = {
 
 export default function Home() {
   const [contactOpen, setContactOpen] = useState(false);
-  const [toast, setToast] = useState("");
-  const [checkingOut, setCheckingOut] = useState(null);
-  const toastTimer = useRef(null);
-
-  const showToast = useCallback((msg) => {
-    setToast(msg);
-    clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(""), 2600);
-  }, []);
-
-  const scrollTo = (id) => (e) => {
-    e?.preventDefault();
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
-  };
 
   const openContact = (e) => {
     e?.preventDefault();
     setContactOpen(true);
   };
 
-  const handleSelectPlan = async (plan) => {
-    setCheckingOut(plan);
-    try {
-      const res = await fetch("/api/public/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok)
-        throw new Error(
-          data.error || data.errors?.[0]?.msg || "Could not start checkout",
-        );
-      window.location.href = data.checkoutUrl;
-    } catch (err) {
-      showToast(err.message);
-      setCheckingOut(null);
-    }
-  };
-
   return (
     <main>
-      <Header onGetStarted={scrollTo("pricing")} />
-      <Hero
-        onGetStarted={scrollTo("pricing")}
-        onViewPlans={scrollTo("pricing")}
-      />
+      <Header onGetStarted={openContact} />
+      <Hero onGetStarted={openContact} />
       <FeatureStrip />
       <WhatIsManaged />
       <TwoTeams />
       <WhyManaged />
-      <Pricing
-        onSelectPlan={handleSelectPlan}
-        checkingOut={checkingOut}
-        onContact={openContact}
-      />
       <FAQ />
-      <CTABanner onGetStarted={scrollTo("pricing")} onContact={openContact} />
+      <CTABanner onGetStarted={openContact} onContact={openContact} />
       <Footer onContact={openContact} />
 
       {contactOpen && <ContactModal onClose={() => setContactOpen(false)} />}
-      {toast && <div className="toast">{toast}</div>}
     </main>
   );
 }

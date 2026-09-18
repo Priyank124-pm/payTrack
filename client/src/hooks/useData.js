@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { projectsAPI, milestonesAPI, usersAPI, changeRequestsAPI } from '../api';
+import { useAuth } from '../context/AuthContext';
 
 // ── Commission helpers ─────────────────────────────────────────
 export const COMMISSION_PORTALS = ['Fiverr', 'Upwork'];
@@ -9,7 +10,14 @@ export const calcNet = (amount, portal) =>
 export const PORTALS = ['Upwork','Fiverr','Toptal','PeoplePerHour','Freelancer','Direct'];
 
 // ── Generic fetch hook ─────────────────────────────────────────
+// Waits for auth to resolve before firing its first request — these hooks
+// mount (and their effects run) immediately as part of AppShell, which is
+// before AuthContext's restoreSession()/signIn() has necessarily set a
+// token. Without this gate, a fresh login raced/401'd the first fetch and
+// it never retried (stable `load` reference never re-fires), leaving the
+// page blank until a full manual refresh remounted everything.
 function useFetch(fetchFn, deps = []) {
+  const { user, loading: authLoading } = useAuth();
   const [data,    setData]    = useState([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
@@ -27,7 +35,11 @@ function useFetch(fetchFn, deps = []) {
     }
   }, deps); // eslint-disable-line
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (authLoading || !user) return;
+    load();
+  }, [load, authLoading, user]);
+
   return { data, loading, error, refetch: load, setData };
 }
 

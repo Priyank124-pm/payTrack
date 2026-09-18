@@ -28,7 +28,7 @@ async function request(method, path, body) {
 const get  = (path)        => request('GET',    path);
 const post = (path, body)  => request('POST',   path, body);
 const patch= (path, body)  => request('PATCH',  path, body);
-const del  = (path)        => request('DELETE', path);
+const del  = (path, body)  => request('DELETE', path, body);
 
 // ── Auth ───────────────────────────────────────────────────────
 export const authAPI = {
@@ -132,13 +132,14 @@ export const serverDealsAPI = {
   getComments:        (id)          => get(`/api/server-deals/${id}/comments`),
   addComment:         (id, comment) => post(`/api/server-deals/${id}/comments`, { comment }),
   remindPM:           (id)          => post(`/api/server-deals/${id}/remind`),
+  remove:             (id, reason)  => del(`/api/server-deals/${id}`, { reason }),
 };
 
 // ── Server Management: Subscriptions ──────────────────────────────
 export const serverSubscriptionsAPI = {
   list:   (params = {}) => { const qs = new URLSearchParams(params).toString(); return get(`/api/server-subscriptions${qs ? '?' + qs : ''}`); },
   get:    (id)          => get(`/api/server-subscriptions/${id}`),
-  cancel: (id)           => patch(`/api/server-subscriptions/${id}/cancel`),
+  cancel: (id, reason)  => patch(`/api/server-subscriptions/${id}/cancel`, { reason }),
 };
 
 // ── Server Management: Invoices ───────────────────────────────────
