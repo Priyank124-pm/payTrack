@@ -450,6 +450,13 @@ async function initDB() {
     `);
     await migrate(`ALTER TABLE server_deal_comments ADD CONSTRAINT fk_sdc_deal FOREIGN KEY (deal_id) REFERENCES server_deals(id) ON DELETE CASCADE`);
 
+    // Soft-delete for deals (kept for audit trail, with a reason) + a reason on subscription cancellation.
+    await migrate(`ALTER TABLE server_deals ADD COLUMN deleted_at DATETIME DEFAULT NULL`);
+    await migrate(`ALTER TABLE server_deals ADD COLUMN deleted_reason TEXT DEFAULT NULL`);
+    await migrate(`ALTER TABLE server_deals ADD COLUMN deleted_by CHAR(36) DEFAULT NULL`);
+    await migrate(`ALTER TABLE server_deals ADD CONSTRAINT fk_server_deals_deleted_by FOREIGN KEY (deleted_by) REFERENCES users(id) ON DELETE SET NULL`);
+    await migrate(`ALTER TABLE server_subscriptions ADD COLUMN cancel_reason TEXT DEFAULT NULL`);
+
     await migrate(`
       CREATE TABLE IF NOT EXISTS stripe_webhook_events (
         id              CHAR(36)     PRIMARY KEY DEFAULT (UUID()),

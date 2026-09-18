@@ -3,6 +3,46 @@ import { Icon, Avatar, StatusBadge, AtRiskBadge, ActionsMenu, Modal, EmptyState,
 import { serverSubscriptionsAPI, invoicesAPI } from '../api';
 import { useAuth } from '../context/AuthContext';
 
+const TAB_STYLE = (active) => ({
+  padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none', background: 'none',
+  borderBottom: active ? '2px solid var(--primary)' : '2px solid transparent',
+  color: active ? 'var(--primary)' : 'var(--text3)',
+});
+
+// ── Cancel-with-reason modal ────────────────────────────────────
+function CancelModal({ sub, onClose, onDone }) {
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState('');
+
+  const submit = async () => {
+    if (!reason.trim()) return setError('A cancellation reason is required.');
+    setSaving(true); setError('');
+    try {
+      await serverSubscriptionsAPI.cancel(sub.id, reason.trim());
+      onDone();
+      onClose();
+    } catch (e) { setError(e.message); } finally { setSaving(false); }
+  };
+
+  return (
+    <Modal title="Cancel Subscription" onClose={onClose} small footer={<>
+      <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+      <button className="btn btn-danger" onClick={submit} disabled={saving}>{saving ? <Spinner /> : 'Cancel Subscription'}</button>
+    </>}>
+      {error && <div className="alert alert-error" style={{ marginBottom: 14 }}><Icon name="warning" size={13} />{error}</div>}
+      <div className="info-box" style={{ marginBottom: 14 }}>
+        <Icon name="info" size={13} />
+        <span>The client for <strong>{sub.project_name}</strong> will stop being billed once Stripe confirms, and this subscription will move to the Cancelled tab.</span>
+      </div>
+      <div className="form-group">
+        <label className="form-label">Reason *</label>
+        <textarea className="form-control" rows={3} autoFocus value={reason} onChange={e => setReason(e.target.value)} placeholder="Why is this subscription being cancelled?" />
+      </div>
+    </Modal>
+  );
+}
+
 // ── Invoice history drawer ────────────────────────────────────
 function InvoiceHistoryModal({ subscription, onClose }) {
   const [invoices, setInvoices] = useState(null);
@@ -56,10 +96,12 @@ function InvoiceHistoryModal({ subscription, onClose }) {
 // ── Main page ──────────────────────────────────────────────────
 export default function SubscribedClients({ profiles = [] }) {
   const { isAdmin } = useAuth();
+  const [tab, setTab]         = useState('active');
   const [subs, setSubs]       = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterPM, setFilterPM] = useState('all');
   const [active, setActive]   = useState(null); // subscription for invoice-history drawer
+  const [toCancel, setToCancel] = useState(null); // subscription for cancel-reason modal
 
   const pms = profiles.filter(u => u.role === 'project_manager');
 
@@ -70,12 +112,11 @@ export default function SubscribedClients({ profiles = [] }) {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const filtered = filterPM === 'all' ? subs : subs.filter(s => s.manager_id === filterPM);
-
-  const cancel = async (sub) => {
-    if (!window.confirm(`Cancel the subscription for ${sub.project_name}? The client will stop being billed once Stripe confirms.`)) return;
-    try { await serverSubscriptionsAPI.cancel(sub.id); load(); }
-    catch (e) { alert(e.message); }
+  const byTab = tab === 'cancelled' ? subs.filter(s => s.status === 'canceled') : subs.filter(s => s.status !== 'canceled');
+  const filtered = filterPM === 'all' ? byTab : byTab.filter(s => s.manager_id === filterPM);
+  const counts = {
+    active: subs.filter(s => s.status !== 'canceled').length,
+    cancelled: subs.filter(s => s.status === 'canceled').length,
   };
 
   return (
@@ -83,7 +124,7 @@ export default function SubscribedClients({ profiles = [] }) {
       <div className="flex flex-center flex-between mb-4">
         <div>
           <div className="page-title">Subscribed Clients</div>
-          <div className="text-muted" style={{ marginTop: 3 }}>{filtered.length} active server subscription{filtered.length !== 1 ? 's' : ''}</div>
+          <div className="text-muted" style={{ marginTop: 3 }}>{filtered.length} {tab === 'cancelled' ? 'cancelled' : 'active'} server subscription{filtered.length !== 1 ? 's' : ''}</div>
         </div>
         {isAdmin && pms.length > 0 && (
           <div>
@@ -96,41 +137,77 @@ export default function SubscribedClients({ profiles = [] }) {
         )}
       </div>
 
+      <div style={{ display: 'flex', borderBottom: '2px solid var(--border)', marginBottom: 14 }}>
+        <button style={TAB_STYLE(tab === 'active')} onClick={() => setTab('active')}>Subscribed ({counts.active})</button>
+        <button style={TAB_STYLE(tab === 'cancelled')} onClick={() => setTab('cancelled')}>Cancelled ({counts.cancelled})</button>
+      </div>
+
       <div className="card">
         <div className="table-wrap"><table>
-          <thead><tr>
-            <th>Client</th><th>Project</th><th>PM</th><th>Price (per cycle)</th>
-            <th>Sub. Start</th><th>Next Billing</th><th>Status</th>
-            <th style={{ textAlign: 'right' }}>Actions</th>
-          </tr></thead>
-          <tbody>
-            {loading && <tr><td colSpan={8}><Spinner large /></td></tr>}
-            {!loading && filtered.length === 0 && <tr><td colSpan={8}><EmptyState icon="🔌" message="No subscribed clients yet" /></td></tr>}
-            {!loading && filtered.map(s => (
-              <tr key={s.id}>
-                <td style={{ fontWeight: 600 }}>{s.client_name}</td>
-                <td>{s.project_name}</td>
-                <td>{s.pm_name ? <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar name={s.pm_name} id={s.manager_id} size={22} />{s.pm_name}</div> : '—'}</td>
-                <td className="mono">{fmt(cycleAmount(s.monthly_price, s.billing_interval))}/{billingSuffix(s.billing_interval)}</td>
-                <td>{s.current_period_start ? new Date(s.current_period_start).toLocaleDateString() : '—'}</td>
-                <td>{s.next_invoice_date ? new Date(s.next_invoice_date).toLocaleDateString() : '—'}</td>
-                <td>
-                  <StatusBadge status={s.status} />
-                  {!!s.at_risk && <span style={{ marginLeft: 6 }}><AtRiskBadge /></span>}
-                </td>
-                <td style={{ textAlign: 'right' }}>
-                  <ActionsMenu items={[
-                    { icon: 'log', label: 'View Invoice History', onClick: () => setActive(s) },
-                    isAdmin && s.status !== 'canceled' && { icon: 'close', label: 'Cancel Subscription', onClick: () => cancel(s), danger: true },
-                  ]} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
+          {tab === 'cancelled' ? (
+            <>
+              <thead><tr>
+                <th>Client</th><th>Project</th><th>PM</th><th>Price (per cycle)</th><th>Reason</th><th>Cancelled On</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
+              </tr></thead>
+              <tbody>
+                {loading && <tr><td colSpan={7}><Spinner large /></td></tr>}
+                {!loading && filtered.length === 0 && <tr><td colSpan={7}><EmptyState icon="🔌" message="No cancelled subscriptions" /></td></tr>}
+                {!loading && filtered.map(s => (
+                  <tr key={s.id}>
+                    <td style={{ fontWeight: 600 }}>{s.client_name}</td>
+                    <td>{s.project_name}</td>
+                    <td>{s.pm_name ? <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar name={s.pm_name} id={s.manager_id} size={22} />{s.pm_name}</div> : '—'}</td>
+                    <td className="mono">{fmt(cycleAmount(s.monthly_price, s.billing_interval))}/{billingSuffix(s.billing_interval)}</td>
+                    <td style={{ maxWidth: 260 }}>{s.cancel_reason || <span style={{ color: 'var(--text4)' }}>—</span>}</td>
+                    <td>{s.canceled_at ? new Date(s.canceled_at).toLocaleDateString() : '—'}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <ActionsMenu items={[
+                        { icon: 'log', label: 'View Invoice History', onClick: () => setActive(s) },
+                      ]} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </>
+          ) : (
+            <>
+              <thead><tr>
+                <th>Client</th><th>Project</th><th>PM</th><th>Price (per cycle)</th>
+                <th>Sub. Start</th><th>Next Billing</th><th>Status</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
+              </tr></thead>
+              <tbody>
+                {loading && <tr><td colSpan={8}><Spinner large /></td></tr>}
+                {!loading && filtered.length === 0 && <tr><td colSpan={8}><EmptyState icon="🔌" message="No subscribed clients yet" /></td></tr>}
+                {!loading && filtered.map(s => (
+                  <tr key={s.id}>
+                    <td style={{ fontWeight: 600 }}>{s.client_name}</td>
+                    <td>{s.project_name}</td>
+                    <td>{s.pm_name ? <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar name={s.pm_name} id={s.manager_id} size={22} />{s.pm_name}</div> : '—'}</td>
+                    <td className="mono">{fmt(cycleAmount(s.monthly_price, s.billing_interval))}/{billingSuffix(s.billing_interval)}</td>
+                    <td>{s.current_period_start ? new Date(s.current_period_start).toLocaleDateString() : '—'}</td>
+                    <td>{s.next_invoice_date ? new Date(s.next_invoice_date).toLocaleDateString() : '—'}</td>
+                    <td>
+                      <StatusBadge status={s.status} />
+                      {!!s.at_risk && <span style={{ marginLeft: 6 }}><AtRiskBadge /></span>}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <ActionsMenu items={[
+                        { icon: 'log', label: 'View Invoice History', onClick: () => setActive(s) },
+                        isAdmin && { icon: 'close', label: 'Cancel Subscription', onClick: () => setToCancel(s), danger: true },
+                      ]} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </>
+          )}
         </table></div>
       </div>
 
       {active && <InvoiceHistoryModal subscription={active} onClose={() => setActive(null)} />}
+      {toCancel && <CancelModal sub={toCancel} onClose={() => setToCancel(null)} onDone={load} />}
     </div>
   );
 }

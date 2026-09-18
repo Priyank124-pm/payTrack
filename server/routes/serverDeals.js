@@ -17,10 +17,11 @@ router.get('/', async (req, res) => {
     let sql = `
       SELECT sd.*,
              p.name AS project_name, p.client AS client_name,
-             p.manager_id, u.name AS pm_name
+             p.manager_id, u.name AS pm_name, du.name AS deleted_by_name
       FROM server_deals sd
       JOIN projects p ON p.id = sd.project_id
       LEFT JOIN users u ON u.id = p.manager_id
+      LEFT JOIN users du ON du.id = sd.deleted_by
     `;
     const params = [];
     const wheres = [];
@@ -31,7 +32,12 @@ router.get('/', async (req, res) => {
       wheres.push('p.manager_id = ?');
       params.push(managerId);
     }
-    if (req.query.status)    { wheres.push('sd.status = ?');     params.push(req.query.status); }
+    if (req.query.status === 'deleted') {
+      wheres.push('sd.deleted_at IS NOT NULL');
+    } else {
+      wheres.push('sd.deleted_at IS NULL');
+      if (req.query.status)  { wheres.push('sd.status = ?');     params.push(req.query.status); }
+    }
     if (req.query.projectId) { wheres.push('sd.project_id = ?'); params.push(req.query.projectId); }
     if (wheres.length) sql += ' WHERE ' + wheres.join(' AND ');
     sql += ' ORDER BY sd.created_at DESC';
@@ -101,7 +107,7 @@ router.post('/',
         await conn.beginTransaction();
         // One open (non-denied) deal per project at a time.
         const [existing] = await conn.query(
-          `SELECT id FROM server_deals WHERE project_id = ? AND status IN ('in_discussion','client_agreed') FOR UPDATE`,
+          `SELECT id FROM server_deals WHERE project_id = ? AND status IN ('in_discussion','client_agreed') AND deleted_at IS NULL FOR UPDATE`,
           [project_id]
         );
         if (existing.length) {
@@ -427,5 +433,41 @@ router.post('/:id/remind', isAdmin, async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+// ── DELETE /api/server-deals/:id ────────────────────────────────
+// Soft delete — kept in the DB (with a reason) for audit trail, filtered out
+// of every other tab, and surfaced on its own "Deleted" tab.
+router.delete('/:id',
+  isAdmin,
+  [ body('reason').trim().notEmpty().withMessage('A reason is required') ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+    try {
+      const [deals] = await pool.query('SELECT * FROM server_deals WHERE id = ?', [req.params.id]);
+      if (!deals.length) return res.status(404).json({ error: 'Deal not found' });
+      const deal = deals[0];
+      if (deal.deleted_at) return res.status(400).json({ error: 'Deal is already deleted' });
+
+      const [proj] = await pool.query('SELECT * FROM projects WHERE id = ?', [deal.project_id]);
+      const managerId = getEffectiveManagerId(req.user);
+      if (managerId && proj[0].manager_id !== managerId) return res.status(403).json({ error: 'Access denied' });
+
+      await pool.query(
+        `UPDATE server_deals SET deleted_at = NOW(), deleted_reason = ?, deleted_by = ? WHERE id = ?`,
+        [req.body.reason.trim(), req.user.id, deal.id]
+      );
+      await logActivity({
+        user: req.user, action: 'delete', entity: 'server_deal', entityId: deal.id,
+        detail: `Deleted server deal for project '${proj[0].name}' — ${req.body.reason.trim()}`,
+      });
+      res.json({ message: 'Deal deleted' });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
 
 module.exports = router;

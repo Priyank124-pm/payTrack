@@ -60,13 +60,17 @@ router.get('/:id', async (req, res) => {
 // Local status is NOT flipped here — the `customer.subscription.deleted`
 // webhook is the sole source of truth, same principle as the checkout flow.
 router.patch('/:id/cancel', isAdmin, async (req, res) => {
+  const reason = (req.body.reason || '').trim();
+  if (!reason) return res.status(400).json({ error: 'A cancellation reason is required' });
   try {
     const [rows] = await pool.query('SELECT * FROM server_subscriptions WHERE id = ?', [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: 'Subscription not found' });
     const sub = rows[0];
 
     await stripeService.cancelSubscription(sub.stripe_subscription_id);
-    await logActivity({ user: req.user, action: 'cancel_requested', entity: 'server_subscription', entityId: sub.id, detail: `Cancellation requested for subscription ${sub.stripe_subscription_id}` });
+    // Recorded immediately (not waiting on Stripe's webhook) since we already have it in hand.
+    await pool.query('UPDATE server_subscriptions SET cancel_reason = ? WHERE id = ?', [reason, sub.id]);
+    await logActivity({ user: req.user, action: 'cancel_requested', entity: 'server_subscription', entityId: sub.id, detail: `Cancellation requested for subscription ${sub.stripe_subscription_id} — ${reason}` });
     res.json({ message: 'Cancellation requested — status will update once Stripe confirms' });
   } catch (err) {
     console.error(err);
