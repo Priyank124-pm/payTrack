@@ -97,45 +97,12 @@ async function retrieveInvoice(invoiceId) {
   return stripe.invoices.retrieve(invoiceId);
 }
 
+// Client-facing cancellation (see /api/server-subscriptions/:id/cancel) —
+// Stripe is the sole billing authority, so this is the only thing that
+// actually stops future charges; local status follows via the
+// `customer.subscription.deleted` webhook.
 async function cancelSubscription(stripeSubscriptionId) {
   return stripe.subscriptions.cancel(stripeSubscriptionId);
-}
-
-// The Checkout subscription exists to capture the customer + payment method
-// on file — NexPortal drives actual billing cadence/amount itself (so carry-
-// forward totals can be folded in), so Stripe's own automatic invoicing on
-// that subscription is paused right after it's created.
-async function pauseSubscriptionCollection(stripeSubscriptionId) {
-  return stripe.subscriptions.update(stripeSubscriptionId, {
-    pause_collection: { behavior: 'void' },
-  });
-}
-
-// One Stripe Invoice per NexPortal invoice (base price + any carried-forward
-// line items already folded into `lineItems` by invoiceService). Uses
-// collection_method 'send_invoice' so the client pays via the hosted "Pay
-// Now" link rather than an automatic off-session charge.
-async function createAndSendInvoice({ customerId, lineItems, daysUntilDue = 1 }) {
-  const invoice = await stripe.invoices.create({
-    customer: customerId,
-    collection_method: 'send_invoice',
-    days_until_due: daysUntilDue,
-    auto_advance: true,
-  });
-
-  for (const item of lineItems) {
-    await stripe.invoiceItems.create({
-      customer: customerId,
-      invoice: invoice.id,
-      amount: toCents(item.amount),
-      currency: 'usd',
-      description: item.description,
-    });
-  }
-
-  const finalized = await stripe.invoices.finalizeInvoice(invoice.id);
-  await stripe.invoices.sendInvoice(invoice.id);
-  return finalized;
 }
 
 function constructWebhookEvent(rawBody, signature) {
@@ -152,7 +119,5 @@ module.exports = {
   retrieveCustomer,
   retrieveInvoice,
   cancelSubscription,
-  pauseSubscriptionCollection,
-  createAndSendInvoice,
   constructWebhookEvent,
 };

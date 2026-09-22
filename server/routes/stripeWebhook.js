@@ -7,6 +7,23 @@ const { notify } = require('../services/notifyService');
 
 const router = express.Router();
 
+// `current_period_start`/`current_period_end` used to live on the Subscription
+// object itself; newer Stripe API versions moved them onto each subscription
+// item instead. Which shape a webhook payload uses depends on the API
+// version the *webhook endpoint* is configured with in the Dashboard (not
+// the stripe-node SDK version), so read both shapes defensively rather than
+// assuming one — this is what was crashing `handleSubscriptionCreated` with
+// "Invalid time value" when the top-level fields were absent.
+function getSubscriptionPeriod(stripeSub) {
+  const start = stripeSub.current_period_start ?? stripeSub.items?.data?.[0]?.current_period_start;
+  const end   = stripeSub.current_period_end   ?? stripeSub.items?.data?.[0]?.current_period_end;
+  if (!start || !end) return null;
+  return {
+    periodStart: new Date(start * 1000).toISOString().split('T')[0],
+    periodEnd:   new Date(end * 1000).toISOString().split('T')[0],
+  };
+}
+
 // No `authenticate` here — Stripe signs requests with `stripe-signature`,
 // not a JWT. Must be mounted with express.raw() (see server/index.js),
 // BEFORE the global express.json() parser, or signature verification fails.
@@ -34,6 +51,7 @@ router.post('/', async (req, res) => {
     switch (event.type) {
       case 'checkout.session.completed': await handleCheckoutCompleted(event.data.object); break;
       case 'customer.subscription.created': await handleSubscriptionCreated(event.data.object); break;
+      case 'customer.subscription.updated': await handleSubscriptionUpdated(event.data.object); break;
       case 'invoice.payment_succeeded': await handleInvoicePaymentSucceeded(event.data.object); break;
       case 'invoice.payment_failed': await handleInvoicePaymentFailed(event.data.object); break;
       case 'customer.subscription.deleted': await handleSubscriptionDeleted(event.data.object); break;
@@ -135,12 +153,16 @@ async function createDealFromPublicSignup(session) {
 // ── Shared: turn a completed Checkout Session into a live subscription ────
 // Used by both the admin-created-deal path and the public-signup path above.
 async function activateSubscription({ deal, project, session }) {
+  // Stripe owns billing end-to-end from here — the subscription stays
+  // active and auto-charges the saved card on its own recurring schedule.
+  // NexPortal only tracks state, mirroring renewals via the
+  // `customer.subscription.updated`/`invoice.payment_*` webhooks below.
   const stripeSub = await stripeService.stripe.subscriptions.retrieve(session.subscription);
-  await stripeService.pauseSubscriptionCollection(session.subscription);
 
   const clientEmail = session.customer_details?.email || null;
-  const periodStart = new Date(stripeSub.current_period_start * 1000).toISOString().split('T')[0];
-  const periodEnd   = new Date(stripeSub.current_period_end * 1000).toISOString().split('T')[0];
+  const period = getSubscriptionPeriod(stripeSub);
+  if (!period) throw new Error(`Could not determine billing period for subscription ${session.subscription}`);
+  const { periodStart, periodEnd } = period;
 
   await pool.query(
     `INSERT INTO server_subscriptions
@@ -155,9 +177,10 @@ async function activateSubscription({ deal, project, session }) {
   // Checkout already collected the first cycle's payment via Stripe's own
   // subscription-mode Invoice — mirror it into our own invoices table
   // (already paid) so it shows up in Invoice History / the Payments
-  // dashboard immediately, same as every later scheduler-generated invoice.
-  // Read amounts/line items straight off the Stripe invoice (ground truth
-  // for what was actually charged) rather than recomputing them ourselves.
+  // dashboard immediately, same as every later Stripe-billed renewal (see
+  // findOrCreateLocalInvoice below). Read amounts/line items straight off
+  // the Stripe invoice (ground truth for what was actually charged) rather
+  // than recomputing them ourselves.
   if (session.invoice) {
     try {
       const stripeInvoice = await stripeService.retrieveInvoice(session.invoice);
@@ -200,27 +223,77 @@ async function handleSubscriptionCreated(stripeSub) {
   // checkout.session.completed is the primary creation path (it has deal/project
   // metadata readily available); this handler just fills in period dates if the
   // row already exists and they're not set yet.
+  const period = getSubscriptionPeriod(stripeSub);
+  if (!period) return; // activateSubscription already set these via a fresh retrieve()
+
   await pool.query(
     `UPDATE server_subscriptions
      SET current_period_start = COALESCE(current_period_start, ?),
          current_period_end   = COALESCE(current_period_end, ?)
      WHERE stripe_subscription_id = ?`,
-    [
-      new Date(stripeSub.current_period_start * 1000).toISOString().split('T')[0],
-      new Date(stripeSub.current_period_end * 1000).toISOString().split('T')[0],
-      stripeSub.id,
-    ]
+    [period.periodStart, period.periodEnd, stripeSub.id]
   );
 }
 
-async function handleInvoicePaymentSucceeded(stripeInvoice) {
-  const [[invoice]] = await pool.query('SELECT * FROM invoices WHERE stripe_invoice_id = ?', [stripeInvoice.id]);
-  if (!invoice) return; // not one of our scheduler-generated invoices (e.g. a stray Stripe-side invoice)
+// Keeps "Sub. Start"/"Next Billing" (SubscribedClients.js) and the Server
+// Payments "upcoming" tab accurate now that Stripe — not a local scheduler —
+// decides when the subscription renews.
+async function handleSubscriptionUpdated(stripeSub) {
+  const period = getSubscriptionPeriod(stripeSub);
+  if (!period) return;
+  await pool.query(
+    `UPDATE server_subscriptions
+     SET current_period_start = ?, current_period_end = ?, next_invoice_date = ?
+     WHERE stripe_subscription_id = ?`,
+    [period.periodStart, period.periodEnd, period.periodEnd, stripeSub.id]
+  );
+}
 
-  await invoiceService.markInvoicePaid(invoice.id, {
-    stripePaymentIntentId: stripeInvoice.payment_intent || null,
+// Every Stripe-generated invoice (first cycle via Checkout, every renewal
+// after) gets mirrored into our own `invoices` table here rather than at
+// creation time, since Stripe generates them on its own schedule now — this
+// is what lets NexPortal keep Invoice History / Server Payments KPIs
+// accurate while only tracking, not driving, the billing itself.
+async function findOrCreateLocalInvoice(stripeInvoice, { paidNow }) {
+  const [[existing]] = await pool.query('SELECT * FROM invoices WHERE stripe_invoice_id = ?', [stripeInvoice.id]);
+  if (existing) return existing;
+  if (!stripeInvoice.subscription) return null; // not tied to one of our subscriptions
+
+  const [[subscription]] = await pool.query(
+    'SELECT * FROM server_subscriptions WHERE stripe_subscription_id = ?', [stripeInvoice.subscription]
+  );
+  if (!subscription) return null;
+
+  const periodStart = new Date((stripeInvoice.period_start || stripeInvoice.created) * 1000).toISOString().split('T')[0];
+  const periodEnd   = new Date((stripeInvoice.period_end   || stripeInvoice.created) * 1000).toISOString().split('T')[0];
+
+  return invoiceService.recordInitialInvoice({
+    subscriptionId: subscription.id, projectId: subscription.project_id,
+    periodStart, periodEnd,
+    subtotal: (stripeInvoice.subtotal || 0) / 100,
+    total: (stripeInvoice.total || 0) / 100,
     amountPaid: (stripeInvoice.amount_paid || 0) / 100,
+    lineItems: (stripeInvoice.lines?.data || []).map(l => ({
+      description: l.description || 'Server Maintenance',
+      amount: (l.amount || 0) / 100,
+    })),
+    stripeInvoiceId: stripeInvoice.id,
+    stripeHostedUrl: stripeInvoice.hosted_invoice_url,
+    stripePaymentIntentId: stripeInvoice.payment_intent,
+    paid: paidNow,
   });
+}
+
+async function handleInvoicePaymentSucceeded(stripeInvoice) {
+  const invoice = await findOrCreateLocalInvoice(stripeInvoice, { paidNow: true });
+  if (!invoice) return;
+
+  if (invoice.status !== 'paid') {
+    await invoiceService.markInvoicePaid(invoice.id, {
+      stripePaymentIntentId: stripeInvoice.payment_intent || null,
+      amountPaid: (stripeInvoice.amount_paid || 0) / 100,
+    });
+  }
   await logActivity({
     user: { id: null, name: 'Stripe', role: 'system' },
     action: 'paid', entity: 'invoice', entityId: invoice.id,
@@ -229,7 +302,7 @@ async function handleInvoicePaymentSucceeded(stripeInvoice) {
 }
 
 async function handleInvoicePaymentFailed(stripeInvoice) {
-  const [[invoice]] = await pool.query('SELECT * FROM invoices WHERE stripe_invoice_id = ?', [stripeInvoice.id]);
+  const invoice = await findOrCreateLocalInvoice(stripeInvoice, { paidNow: false });
   if (!invoice) return;
 
   await pool.query(`UPDATE invoices SET status = 'overdue' WHERE id = ?`, [invoice.id]);

@@ -60,8 +60,11 @@ app.use((err, _req, res, _next) => {
   await initDB();
   const { startScheduler } = require('./services/notificationScheduler');
   startScheduler();
-  const { startBillingScheduler } = require('./services/billingScheduler');
-  startBillingScheduler();
+  // Stripe now owns billing cadence/charging end-to-end (subscriptions
+  // auto-renew on their own schedule) — NexPortal only tracks subscription
+  // state via webhooks, so the old invoice-generation scheduler stays off.
+  // Left running, it would generate + charge a second, duplicate invoice on
+  // top of Stripe's own automatic renewal invoice.
   app.listen(PORT, () => {
     console.log(`🚀  NexPortal API running on http://localhost:${PORT}`);
     console.log(`   CLIENT_URL = ${process.env.CLIENT_URL || 'http://localhost:3000'}`);
