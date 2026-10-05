@@ -24,7 +24,7 @@ router.get('/', async (req, res) => {
 
     if (tab === 'upcoming') {
       let sql = `
-        SELECT ss.id AS subscription_id, ss.project_id, ss.monthly_price AS amount, ss.next_invoice_date AS due_date,
+        SELECT ss.id AS subscription_id, ss.project_id, ss.monthly_price AS amount, ss.currency, ss.next_invoice_date AS due_date,
                p.name AS project_name, p.client AS client_name, p.manager_id, u.name AS pm_name
         FROM server_subscriptions ss
         JOIN projects p ON p.id = ss.project_id

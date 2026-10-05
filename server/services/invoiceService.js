@@ -22,6 +22,7 @@ async function recordInitialInvoice({
   subscriptionId, projectId, periodStart, periodEnd,
   subtotal, total, amountPaid, lineItems,
   stripeInvoiceId, stripeHostedUrl, stripePaymentIntentId, paid,
+  currency = 'usd', tax = 0,
 }) {
   const conn = await pool.getConnection();
   try {
@@ -34,11 +35,11 @@ async function recordInitialInvoice({
       `INSERT INTO invoices
          (id, subscription_id, project_id, invoice_number, period_start, period_end, due_date,
           subtotal, total, amount_paid, status, stripe_invoice_id, stripe_payment_intent_id,
-          stripe_hosted_invoice_url, paid_at, sent_at)
-       VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          stripe_hosted_invoice_url, paid_at, sent_at, currency, tax)
+       VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)`,
       [subscriptionId, projectId, invoiceNumber, periodStart, periodEnd, periodStart,
        subtotal, total, paid ? amountPaid : 0, status, stripeInvoiceId || null, stripePaymentIntentId || null,
-       stripeHostedUrl || null, paid ? new Date() : null]
+       stripeHostedUrl || null, paid ? new Date() : null, currency, tax]
     );
     const [[invoice]] = await conn.query('SELECT * FROM invoices WHERE invoice_number = ?', [invoiceNumber]);
 

@@ -108,8 +108,9 @@ export default function ServerPayments({ profiles = [] }) {
                 <td>{r.project_name}</td>
                 <td>{r.pm_name ? <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar name={r.pm_name} id={r.manager_id} size={22} />{r.pm_name}</div> : '—'}</td>
                 <td className="mono">
-                  {fmt(r.total ?? r.amount)}
-                  {r.total != null && r.subtotal != null && Number(r.total) > Number(r.subtotal) && <span className="badge badge-yellow" style={{ marginLeft: 6, fontSize: 10 }}>Includes overdue</span>}
+                  {fmt(r.total ?? r.amount, r.currency)}
+                  {Number(r.tax) > 0 && <span style={{ color: 'var(--text3)', fontSize: 11, marginLeft: 4 }}>(incl. {fmt(r.tax, r.currency)} tax)</span>}
+                  {r.total != null && r.subtotal != null && Number(r.total) > Number(r.subtotal) + Number(r.tax || 0) && <span className="badge badge-yellow" style={{ marginLeft: 6, fontSize: 10 }}>Includes overdue</span>}
                 </td>
                 <td>{r.due_date ? new Date(r.due_date).toLocaleDateString() : '—'}</td>
                 <td><StatusBadge status={r.status} /></td>

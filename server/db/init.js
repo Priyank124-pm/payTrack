@@ -466,6 +466,14 @@ async function initDB() {
       )
     `);
 
+    // Currency choice (USD/CAD) on the deal — CAD deals collect a 5% tax,
+    // charged via Stripe at checkout. Subscriptions/invoices mirror whatever
+    // currency Stripe actually billed in, plus the tax portion of the total.
+    await migrate(`ALTER TABLE server_deals ADD COLUMN currency ENUM('usd','cad') NOT NULL DEFAULT 'usd'`);
+    await migrate(`ALTER TABLE server_subscriptions ADD COLUMN currency ENUM('usd','cad') NOT NULL DEFAULT 'usd'`);
+    await migrate(`ALTER TABLE invoices ADD COLUMN currency ENUM('usd','cad') NOT NULL DEFAULT 'usd'`);
+    await migrate(`ALTER TABLE invoices ADD COLUMN tax DECIMAL(14,2) NOT NULL DEFAULT 0.00`);
+
     // ── Public site: "Contact Us" / "Talk to our team" submissions ──
     await migrate(`
       CREATE TABLE IF NOT EXISTS contact_requests (

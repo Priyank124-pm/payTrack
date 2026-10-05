@@ -167,10 +167,10 @@ async function activateSubscription({ deal, project, session }) {
   await pool.query(
     `INSERT INTO server_subscriptions
        (id, deal_id, project_id, stripe_subscription_id, stripe_customer_id, client_email,
-        status, monthly_price, billing_interval, current_period_start, current_period_end, next_invoice_date)
-     VALUES (UUID(), ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`,
+        status, monthly_price, billing_interval, currency, current_period_start, current_period_end, next_invoice_date)
+     VALUES (UUID(), ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
     [deal.id, deal.project_id, session.subscription, session.customer, clientEmail,
-     deal.monthly_price, deal.billing_interval, periodStart, periodEnd, periodEnd]
+     deal.monthly_price, deal.billing_interval, deal.currency || 'usd', periodStart, periodEnd, periodEnd]
   );
   const [[newSub]] = await pool.query('SELECT id FROM server_subscriptions WHERE deal_id = ?', [deal.id]);
 
@@ -199,6 +199,8 @@ async function activateSubscription({ deal, project, session }) {
         stripeHostedUrl: stripeInvoice.hosted_invoice_url,
         stripePaymentIntentId: stripeInvoice.payment_intent,
         paid: paidNow,
+        currency: stripeInvoice.currency || deal.currency || 'usd',
+        tax: (stripeInvoice.tax || 0) / 100,
       });
     } catch (e) {
       console.error('[Stripe webhook] Failed to record initial invoice:', e.message);
@@ -281,6 +283,8 @@ async function findOrCreateLocalInvoice(stripeInvoice, { paidNow }) {
     stripeHostedUrl: stripeInvoice.hosted_invoice_url,
     stripePaymentIntentId: stripeInvoice.payment_intent,
     paid: paidNow,
+    currency: stripeInvoice.currency || subscription.currency || 'usd',
+    tax: (stripeInvoice.tax || 0) / 100,
   });
 }
 

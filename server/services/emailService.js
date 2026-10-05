@@ -157,8 +157,11 @@ function dueSoonTemplate({ recipientName, milestones }) {
   `;
 }
 
+const CURRENCY_SYMBOLS = { usd: '$', cad: 'C$' };
+
 // ── Server Management: deal checkout link ──────────────────────
-function dealCheckoutLinkTemplate({ recipientName, planName, amount, checkoutUrl }) {
+function dealCheckoutLinkTemplate({ recipientName, planName, amount, checkoutUrl, currency = 'usd' }) {
+  const sym = CURRENCY_SYMBOLS[currency] || '$';
   return `
   <!DOCTYPE html>
   <html>
@@ -175,7 +178,7 @@ function dealCheckoutLinkTemplate({ recipientName, planName, amount, checkoutUrl
       <div style="padding:28px 32px;">
         <p style="color:#374151;font-size:14px;margin-bottom:20px;">Hi <strong>${recipientName}</strong>,</p>
         <p style="color:#6B7280;font-size:13px;line-height:1.6;margin-bottom:22px;">
-          Thanks for agreeing to the <strong>${planName}</strong> plan (<strong>$${Number(amount).toLocaleString()}/mo</strong>). Click below to set up billing securely via Stripe.
+          Thanks for agreeing to the <strong>${planName}</strong> plan (<strong>${sym}${Number(amount).toLocaleString()}/mo</strong>${currency === 'cad' ? ' + 5% tax' : ''}). Click below to set up billing securely via Stripe.
         </p>
         <div style="text-align:center;margin:28px 0;">
           <a href="${checkoutUrl}" style="display:inline-block;background:#4F46E5;color:white;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px;">Set Up Billing</a>
@@ -193,12 +196,20 @@ function dealCheckoutLinkTemplate({ recipientName, planName, amount, checkoutUrl
 
 // ── Server Management: monthly invoice ──────────────────────────
 function invoiceTemplate({ recipientName, projectName, invoice, lineItems, payNowUrl }) {
+  const sym = CURRENCY_SYMBOLS[invoice.currency] || '$';
   const rows = lineItems.map(li => `
     <tr>
       <td style="padding:10px 14px;border-bottom:1px solid #E2E6EF;${li.is_carry_forward ? 'color:#D97706;' : ''}">${li.description}</td>
-      <td style="padding:10px 14px;border-bottom:1px solid #E2E6EF;font-family:monospace;text-align:right;">$${Number(li.amount).toLocaleString()}</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #E2E6EF;font-family:monospace;text-align:right;">${sym}${Number(li.amount).toLocaleString()}</td>
     </tr>
   `).join('');
+
+  const taxRow = Number(invoice.tax) > 0 ? `
+    <tr>
+      <td style="padding:10px 14px;border-bottom:1px solid #E2E6EF;color:#6B7280;">Tax (5%)</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #E2E6EF;font-family:monospace;text-align:right;color:#6B7280;">${sym}${Number(invoice.tax).toLocaleString()}</td>
+    </tr>
+  ` : '';
 
   const carryTag = lineItems.some(li => li.is_carry_forward)
     ? `<span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700;margin-left:8px;">Includes overdue</span>`
@@ -220,7 +231,7 @@ function invoiceTemplate({ recipientName, projectName, invoice, lineItems, payNo
       <div style="padding:28px 32px;">
         <p style="color:#374151;font-size:14px;margin-bottom:20px;">Hi <strong>${recipientName}</strong>,</p>
         <p style="color:#6B7280;font-size:13px;line-height:1.6;margin-bottom:22px;">
-          Your invoice for <strong>${projectName}</strong> — Server Maintenance is ready. Amount due <strong>$${Number(invoice.total).toLocaleString()}</strong>, due ${invoice.due_date}. ${carryTag}
+          Your invoice for <strong>${projectName}</strong> — Server Maintenance is ready. Amount due <strong>${sym}${Number(invoice.total).toLocaleString()}</strong>, due ${invoice.due_date}. ${carryTag}
         </p>
         <table style="width:100%;border-collapse:collapse;border:1px solid #E2E6EF;border-radius:10px;overflow:hidden;font-size:13px;">
           <thead>
@@ -229,11 +240,11 @@ function invoiceTemplate({ recipientName, projectName, invoice, lineItems, payNo
               <th style="padding:10px 14px;text-align:right;font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:.6px;">Amount</th>
             </tr>
           </thead>
-          <tbody>${rows}</tbody>
+          <tbody>${rows}${taxRow}</tbody>
           <tfoot>
             <tr>
               <td style="padding:12px 14px;font-weight:700;">Total Due</td>
-              <td style="padding:12px 14px;font-weight:700;font-family:monospace;text-align:right;">$${Number(invoice.total).toLocaleString()}</td>
+              <td style="padding:12px 14px;font-weight:700;font-family:monospace;text-align:right;">${sym}${Number(invoice.total).toLocaleString()}</td>
             </tr>
           </tfoot>
         </table>
