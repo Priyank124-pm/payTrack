@@ -73,8 +73,9 @@ function InvoiceHistoryModal({ subscription, onClose }) {
                 <td className="mono">{inv.invoice_number}</td>
                 <td>{inv.period_start ? new Date(inv.period_start).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—'}</td>
                 <td className="mono">
-                  {fmt(inv.total)}
-                  {Number(inv.total) > Number(inv.subtotal) && <span className="badge badge-yellow" style={{ marginLeft: 6, fontSize: 10 }}>Includes overdue</span>}
+                  {fmt(inv.total, inv.currency)}
+                  {Number(inv.tax) > 0 && <span style={{ color: 'var(--text3)', fontSize: 11, marginLeft: 4 }}>(incl. {fmt(inv.tax, inv.currency)} tax)</span>}
+                  {Number(inv.total) > Number(inv.subtotal) + Number(inv.tax || 0) && <span className="badge badge-yellow" style={{ marginLeft: 6, fontSize: 10 }}>Includes overdue</span>}
                 </td>
                 <td><StatusBadge status={inv.status} /></td>
                 <td>{inv.sent_at ? new Date(inv.sent_at).toLocaleDateString() : '—'}</td>
@@ -158,7 +159,7 @@ export default function SubscribedClients({ profiles = [] }) {
                     <td style={{ fontWeight: 600 }}>{s.client_name}</td>
                     <td>{s.project_name}</td>
                     <td>{s.pm_name ? <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar name={s.pm_name} id={s.manager_id} size={22} />{s.pm_name}</div> : '—'}</td>
-                    <td className="mono">{fmt(cycleAmount(s.monthly_price, s.billing_interval))}/{billingSuffix(s.billing_interval)}</td>
+                    <td className="mono">{fmt(cycleAmount(s.monthly_price, s.billing_interval), s.currency)}/{billingSuffix(s.billing_interval)}</td>
                     <td style={{ maxWidth: 260 }}>{s.cancel_reason || <span style={{ color: 'var(--text4)' }}>—</span>}</td>
                     <td>{s.canceled_at ? new Date(s.canceled_at).toLocaleDateString() : '—'}</td>
                     <td style={{ textAlign: 'right' }}>
@@ -185,7 +186,7 @@ export default function SubscribedClients({ profiles = [] }) {
                     <td style={{ fontWeight: 600 }}>{s.client_name}</td>
                     <td>{s.project_name}</td>
                     <td>{s.pm_name ? <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar name={s.pm_name} id={s.manager_id} size={22} />{s.pm_name}</div> : '—'}</td>
-                    <td className="mono">{fmt(cycleAmount(s.monthly_price, s.billing_interval))}/{billingSuffix(s.billing_interval)}</td>
+                    <td className="mono">{fmt(cycleAmount(s.monthly_price, s.billing_interval), s.currency)}/{billingSuffix(s.billing_interval)}</td>
                     <td>{s.current_period_start ? new Date(s.current_period_start).toLocaleDateString() : '—'}</td>
                     <td>{s.next_invoice_date ? new Date(s.next_invoice_date).toLocaleDateString() : '—'}</td>
                     <td>

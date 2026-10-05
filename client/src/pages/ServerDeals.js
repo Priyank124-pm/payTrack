@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Icon, Avatar, StatusBadge, ActionsMenu, Modal, EmptyState, Spinner, fmt, BILLING_INTERVALS, billingSuffix, cycleAmount } from '../components/UI';
+import { Icon, Avatar, StatusBadge, ActionsMenu, Modal, EmptyState, Spinner, fmt, BILLING_INTERVALS, billingSuffix, cycleAmount, CURRENCIES } from '../components/UI';
 import { serverDealsAPI, projectsAPI } from '../api';
 import { useAuth } from '../context/AuthContext';
 
@@ -131,7 +131,13 @@ function NewDealModal({ onClose, onCreated }) {
 
 // ── Shared plan/price fields — used both for standalone editing and for
 // confirming pricing at the moment a deal is marked Client Agreed ──
-function PricingFields({ planName, setPlanName, monthly, setMonthly, setupFee, setSetupFee, interval, setIntervalV }) {
+function PricingFields({ planName, setPlanName, monthly, setMonthly, setupFee, setSetupFee, interval, setIntervalV, currency, setCurrency }) {
+  const sym = currency === 'cad' ? 'C$' : '$';
+  const taxed = currency === 'cad';
+  const cycleBase = cycleAmount(monthly, interval);
+  const cycleTax = taxed ? cycleBase * 0.05 : 0;
+  const setupTax = taxed ? parseFloat(setupFee || 0) * 0.05 : 0;
+
   return (
     <>
       <div className="form-group">
@@ -141,27 +147,36 @@ function PricingFields({ planName, setPlanName, monthly, setMonthly, setupFee, s
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div className="form-group">
-          <label className="form-label">Monthly Price ($) *</label>
+          <label className="form-label">Monthly Price ({sym}) *</label>
           <input className="form-control" type="number" value={monthly} onChange={e => setMonthly(e.target.value)} placeholder="99" />
         </div>
         <div className="form-group">
-          <label className="form-label">Setup Fee ($)</label>
+          <label className="form-label">Setup Fee ({sym})</label>
           <input className="form-control" type="number" value={setupFee} onChange={e => setSetupFee(e.target.value)} placeholder="0" />
         </div>
       </div>
 
-      <div className="form-group">
-        <label className="form-label">Billing Cycle</label>
-        <select className="form-control" value={interval} onChange={e => setIntervalV(e.target.value)}>
-          {BILLING_INTERVALS.map(b => <option key={b.val} value={b.val}>{b.label}</option>)}
-        </select>
-        {parseFloat(monthly) > 0 && (
-          <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>
-            Client is charged <strong>{fmt(cycleAmount(monthly, interval))}</strong> every {BILLING_INTERVALS.find(b => b.val === interval)?.label.toLowerCase()} cycle
-            {parseFloat(setupFee) > 0 && <> (plus a one-time {fmt(setupFee)} setup fee on the first invoice)</>}.
-          </div>
-        )}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div className="form-group">
+          <label className="form-label">Currency</label>
+          <select className="form-control" value={currency} onChange={e => setCurrency(e.target.value)}>
+            {CURRENCIES.map(c => <option key={c.val} value={c.val}>{c.label}</option>)}
+          </select>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Billing Cycle</label>
+          <select className="form-control" value={interval} onChange={e => setIntervalV(e.target.value)}>
+            {BILLING_INTERVALS.map(b => <option key={b.val} value={b.val}>{b.label}</option>)}
+          </select>
+        </div>
       </div>
+
+      {parseFloat(monthly) > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: -8, marginBottom: 14 }}>
+          Client is charged <strong>{fmt(cycleBase, currency)}</strong>{taxed && <> + {fmt(cycleTax, currency)} tax (5%)</>} every {BILLING_INTERVALS.find(b => b.val === interval)?.label.toLowerCase()} cycle
+          {parseFloat(setupFee) > 0 && <> (plus a one-time {fmt(setupFee, currency)}{taxed && <> + {fmt(setupTax, currency)} tax</>} setup fee on the first invoice)</>}.
+        </div>
+      )}
     </>
   );
 }
@@ -172,6 +187,7 @@ function EditPricingModal({ deal, onClose, onDone }) {
   const [monthly, setMonthly]     = useState(deal.monthly_price > 0 ? String(deal.monthly_price) : '');
   const [setupFee, setSetupFee]   = useState(deal.setup_fee > 0 ? String(deal.setup_fee) : '');
   const [interval, setIntervalV]  = useState(deal.billing_interval || 'month');
+  const [currency, setCurrency]   = useState(deal.currency || 'usd');
   const [targetDate, setTargetDate] = useState(deal.target_date ? deal.target_date.slice(0, 10) : '');
   const [notes, setNotes]         = useState(deal.notes || '');
   const [saving, setSaving] = useState(false);
@@ -185,7 +201,7 @@ function EditPricingModal({ deal, onClose, onDone }) {
     try {
       await serverDealsAPI.update(deal.id, {
         plan_name: planName.trim(), monthly_price: parseFloat(monthly),
-        setup_fee: parseFloat(setupFee) || 0, billing_interval: interval,
+        setup_fee: parseFloat(setupFee) || 0, billing_interval: interval, currency,
         target_date: targetDate || '', notes: notes.trim(),
       });
       onDone();
@@ -200,7 +216,8 @@ function EditPricingModal({ deal, onClose, onDone }) {
     </>}>
       {error && <div className="alert alert-error" style={{ marginBottom: 14 }}><Icon name="warning" size={13} />{error}</div>}
       <PricingFields planName={planName} setPlanName={setPlanName} monthly={monthly} setMonthly={setMonthly}
-        setupFee={setupFee} setSetupFee={setSetupFee} interval={interval} setIntervalV={setIntervalV} />
+        setupFee={setupFee} setSetupFee={setSetupFee} interval={interval} setIntervalV={setIntervalV}
+        currency={currency} setCurrency={setCurrency} />
       <div className="form-group">
         <label className="form-label">Target Decision Date</label>
         <input className="form-control" type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} />
@@ -219,6 +236,7 @@ function AgreeModal({ deal, onClose, onAgreed }) {
   const [monthly, setMonthly]     = useState(deal.monthly_price > 0 ? String(deal.monthly_price) : '');
   const [setupFee, setSetupFee]   = useState(deal.setup_fee > 0 ? String(deal.setup_fee) : '');
   const [interval, setIntervalV]  = useState(deal.billing_interval || 'month');
+  const [currency, setCurrency]   = useState(deal.currency || 'usd');
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
 
@@ -230,10 +248,10 @@ function AgreeModal({ deal, onClose, onAgreed }) {
     try {
       await serverDealsAPI.update(deal.id, {
         plan_name: planName.trim(), monthly_price: parseFloat(monthly),
-        setup_fee: parseFloat(setupFee) || 0, billing_interval: interval,
+        setup_fee: parseFloat(setupFee) || 0, billing_interval: interval, currency,
       });
       const res = await serverDealsAPI.updateStatus(deal.id, { status: 'client_agreed' });
-      onAgreed({ ...deal, plan_name: planName.trim(), monthly_price: parseFloat(monthly), billing_interval: interval }, res.checkoutUrl);
+      onAgreed({ ...deal, plan_name: planName.trim(), monthly_price: parseFloat(monthly), billing_interval: interval, currency }, res.checkoutUrl);
       onClose();
     } catch (e) { setError(e.message); } finally { setSaving(false); }
   };
@@ -245,7 +263,8 @@ function AgreeModal({ deal, onClose, onAgreed }) {
     </>}>
       {error && <div className="alert alert-error" style={{ marginBottom: 14 }}><Icon name="warning" size={13} />{error}</div>}
       <PricingFields planName={planName} setPlanName={setPlanName} monthly={monthly} setMonthly={setMonthly}
-        setupFee={setupFee} setSetupFee={setSetupFee} interval={interval} setIntervalV={setIntervalV} />
+        setupFee={setupFee} setSetupFee={setSetupFee} interval={interval} setIntervalV={setIntervalV}
+        currency={currency} setCurrency={setCurrency} />
     </Modal>
   );
 }
@@ -563,7 +582,7 @@ export default function ServerDeals() {
                     <td>{d.target_date ? new Date(d.target_date).toLocaleDateString() : <span style={{ color: 'var(--text4)' }}>—</span>}</td>
                     <td className="mono">
                       {d.monthly_price > 0
-                        ? <>{fmt(cycleAmount(d.monthly_price, d.billing_interval))}/{billingSuffix(d.billing_interval)}</>
+                        ? <>{fmt(cycleAmount(d.monthly_price, d.billing_interval), d.currency)}/{billingSuffix(d.billing_interval)}</>
                         : <span style={{ color: 'var(--text4)', fontWeight: 400 }}>Not set yet</span>}
                     </td>
                     <td>{new Date(d.created_at).toLocaleDateString()}</td>

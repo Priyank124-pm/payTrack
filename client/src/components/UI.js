@@ -146,7 +146,8 @@ export const Avatar = ({ name='?', id='', size=32 }) => (
 );
 
 // ── Helpers ────────────────────────────────────────────────────
-export const fmt = n => '$'+Number(n||0).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:2});
+export const CURRENCY_SYMBOLS = { usd: '$', cad: 'C$' };
+export const fmt = (n, currency = 'usd') => `${CURRENCY_SYMBOLS[currency] || '$'}${Number(n||0).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:2})}`;
 export const pct = (a,b) => b>0 ? Math.min(100,Math.round((a/b)*100)) : 0;
 export const MONTHS = Array.from({length:12},(_,i)=>({val:i+1,label:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][i]}));
 export const YEARS  = [2024,2025,2026,2027,2028];
@@ -162,6 +163,11 @@ export const BILLING_INTERVALS = [
   { val:'year',      label:'Yearly',      suffix:'yr'  },
 ];
 export const billingSuffix = (interval) => BILLING_INTERVALS.find(b => b.val === interval)?.suffix || 'mo';
+// ── Server Management: currency options — CAD deals collect a 5% tax at checkout ──
+export const CURRENCIES = [
+  { val: 'usd', label: 'USD ($)' },
+  { val: 'cad', label: 'CAD (C$) — 5% tax applies' },
+];
 // monthlyPrice is always the MONTHLY rate — the amount actually charged per
 // cycle is that rate times however many months are in the billing interval.
 const CYCLE_MONTHS = { month: 1, quarter: 3, half_year: 6, year: 12 };
