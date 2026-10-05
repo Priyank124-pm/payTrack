@@ -87,13 +87,14 @@ router.post('/',
     body('monthly_price').optional({ checkFalsy: true }).isFloat({ min: 0 }),
     body('setup_fee').optional({ checkFalsy: true }).isFloat({ min: 0 }),
     body('billing_interval').optional().isIn(['month', 'quarter', 'half_year', 'year']),
+    body('currency').optional().isIn(['usd', 'cad']),
     body('target_date').optional({ checkFalsy: true }).isISO8601(),
   ],
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-    const { project_id, plan_name, monthly_price, setup_fee, billing_interval, notes, target_date } = req.body;
+    const { project_id, plan_name, monthly_price, setup_fee, billing_interval, currency, notes, target_date } = req.body;
 
     try {
       const [proj] = await pool.query('SELECT * FROM projects WHERE id = ?', [project_id]);
@@ -115,9 +116,9 @@ router.post('/',
           return res.status(409).json({ error: 'This project already has an open server deal' });
         }
         await conn.query(
-          `INSERT INTO server_deals (id, project_id, plan_name, monthly_price, setup_fee, billing_interval, notes, target_date, created_by)
-           VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [project_id, plan_name?.trim() || null, parseFloat(monthly_price) || 0, parseFloat(setup_fee) || 0, billing_interval || 'month', notes || null, target_date || null, req.user.id]
+          `INSERT INTO server_deals (id, project_id, plan_name, monthly_price, setup_fee, billing_interval, currency, notes, target_date, created_by)
+           VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [project_id, plan_name?.trim() || null, parseFloat(monthly_price) || 0, parseFloat(setup_fee) || 0, billing_interval || 'month', currency || 'usd', notes || null, target_date || null, req.user.id]
         );
         const [rows] = await conn.query(
           `SELECT * FROM server_deals WHERE project_id = ? ORDER BY created_at DESC LIMIT 1`,
@@ -161,6 +162,7 @@ router.patch('/:id',
     body('monthly_price').optional({ checkFalsy: true }).isFloat({ min: 0 }),
     body('setup_fee').optional({ checkFalsy: true }).isFloat({ min: 0 }),
     body('billing_interval').optional().isIn(['month', 'quarter', 'half_year', 'year']),
+    body('currency').optional().isIn(['usd', 'cad']),
     body('target_date').optional({ checkFalsy: true }).isISO8601(),
   ],
   async (req, res) => {
@@ -176,19 +178,27 @@ router.patch('/:id',
       const managerId = getEffectiveManagerId(req.user);
       if (managerId && proj[0].manager_id !== managerId) return res.status(403).json({ error: 'Access denied' });
 
-      const pricingFields = ['plan_name', 'monthly_price', 'setup_fee', 'billing_interval'];
+      const pricingFields = ['plan_name', 'monthly_price', 'setup_fee', 'billing_interval', 'currency'];
       const touchesPricing = pricingFields.some(k => req.body[k] !== undefined);
       if (touchesPricing) {
         const [subs] = await pool.query('SELECT id FROM server_subscriptions WHERE deal_id = ?', [deal.id]);
         if (subs.length) return res.status(400).json({ error: 'This deal already has an active subscription — pricing can no longer be edited here' });
       }
 
-      const allowed = ['plan_name', 'monthly_price', 'setup_fee', 'billing_interval', 'notes', 'target_date'];
+      const allowed = ['plan_name', 'monthly_price', 'setup_fee', 'billing_interval', 'currency', 'notes', 'target_date'];
       const fields = [], values = [];
       for (const key of allowed) {
         if (req.body[key] !== undefined) { fields.push(`${key} = ?`); values.push(req.body[key] === '' ? null : req.body[key]); }
       }
       if (!fields.length) return res.status(400).json({ error: 'Nothing to update' });
+
+      // Pricing/currency changed — the old checkout session (if any) still reflects the
+      // stale amount/currency, so stop reusing it: expire it on Stripe's side (best effort)
+      // and clear our reference so the next checkout-link request generates a fresh one.
+      if (touchesPricing && deal.stripe_checkout_session_id) {
+        fields.push('stripe_checkout_session_id = NULL');
+        try { await stripeService.stripe.checkout.sessions.expire(deal.stripe_checkout_session_id); } catch (_e) { /* already expired/completed */ }
+      }
 
       await pool.query(`UPDATE server_deals SET ${fields.join(', ')} WHERE id = ?`, [...values, deal.id]);
       const [rows] = await pool.query('SELECT * FROM server_deals WHERE id = ?', [deal.id]);
@@ -325,7 +335,7 @@ router.post('/:id/resend-checkout-email',
         to: req.body.to,
         subject: `Set Up Billing — ${proj[0].name} Server Maintenance`,
         html: dealCheckoutLinkTemplate({
-          recipientName: proj[0].client, planName: deal.plan_name, amount: deal.monthly_price, checkoutUrl: session.url,
+          recipientName: proj[0].client, planName: deal.plan_name, amount: deal.monthly_price, checkoutUrl: session.url, currency: deal.currency,
         }),
       });
       await logActivity({ user: req.user, action: 'email_sent', entity: 'server_deal', entityId: deal.id, detail: `Checkout link emailed to ${req.body.to}` });

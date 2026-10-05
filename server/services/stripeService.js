@@ -21,32 +21,62 @@ const toStripeRecurring = (billingInterval) => RECURRING_BY_INTERVAL[billingInte
 const CYCLE_MONTHS = { month: 1, quarter: 3, half_year: 6, year: 12 };
 const cycleAmount = (monthlyPrice, billingInterval) => Number(monthlyPrice || 0) * (CYCLE_MONTHS[billingInterval] || 1);
 
+// CAD deals carry a flat 5% tax. Stripe needs a Tax Rate object id to attach
+// to line items — find the one we already created and reuse it, or create it
+// once. Cached in memory so we don't re-list on every checkout.
+let cadTaxRateId = null;
+async function getCadTaxRateId() {
+  if (cadTaxRateId) return cadTaxRateId;
+
+  const existing = await stripe.taxRates.list({ active: true, limit: 100 });
+  const found = existing.data.find((rate) => rate.percentage === 5 && rate.jurisdiction === 'CA');
+  if (found) {
+    cadTaxRateId = found.id;
+    return cadTaxRateId;
+  }
+
+  const created = await stripe.taxRates.create({
+    display_name: 'Tax',
+    percentage: 5,
+    inclusive: false,
+    country: 'CA',
+    jurisdiction: 'CA',
+  });
+  cadTaxRateId = created.id;
+  return cadTaxRateId;
+}
+
 // ── Checkout Session (subscription mode) ───────────────────────
 // Recurring monthly/yearly price + an optional one-time setup fee line.
 async function createCheckoutSession({ deal, project, customerEmail }) {
   const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+  const currency = (deal.currency || 'usd').toLowerCase();
+  const taxRateId = currency === 'cad' ? await getCadTaxRateId() : null;
 
-  const lineItems = [
-    {
-      price_data: {
-        currency: 'usd',
-        product_data: { name: `${deal.plan_name} — ${project.name}` },
-        unit_amount: toCents(cycleAmount(deal.monthly_price, deal.billing_interval)),
-        recurring: toStripeRecurring(deal.billing_interval),
-      },
-      quantity: 1,
+  const planItem = {
+    price_data: {
+      currency,
+      product_data: { name: `${deal.plan_name} — ${project.name}` },
+      unit_amount: toCents(cycleAmount(deal.monthly_price, deal.billing_interval)),
+      recurring: toStripeRecurring(deal.billing_interval),
     },
-  ];
+    quantity: 1,
+  };
+  if (taxRateId) planItem.tax_rates = [taxRateId];
+
+  const lineItems = [planItem];
 
   if (Number(deal.setup_fee) > 0) {
-    lineItems.push({
+    const setupItem = {
       price_data: {
-        currency: 'usd',
+        currency,
         product_data: { name: `Setup Fee — ${project.name}` },
         unit_amount: toCents(deal.setup_fee),
       },
       quantity: 1,
-    });
+    };
+    if (taxRateId) setupItem.tax_rates = [taxRateId];
+    lineItems.push(setupItem);
   }
 
   const session = await stripe.checkout.sessions.create({
