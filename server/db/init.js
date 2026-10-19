@@ -573,6 +573,21 @@ async function initDB() {
       )
     `);
 
+    // ── Effective-dated portal / PM / coordinator history ───────
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS project_history (
+        id             CHAR(36)    PRIMARY KEY DEFAULT (UUID()),
+        project_id     CHAR(36)    NOT NULL,
+        field          VARCHAR(30) NOT NULL,
+        value          VARCHAR(60) NOT NULL DEFAULT '',
+        effective_from DATE        NOT NULL,
+        changed_by     CHAR(36)    DEFAULT NULL,
+        created_at     DATETIME    DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT fk_ph_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        INDEX idx_ph_lookup (project_id, field, effective_from)
+      )
+    `);
+
     console.log('✅  Database schema initialised');
   } catch (err) {
     console.error('❌  Schema init error:', err.message);
