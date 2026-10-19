@@ -3,6 +3,19 @@ import { Modal, Icon, Avatar, RoleBadge, EmptyState, Spinner } from '../componen
 import { useAuth } from '../context/AuthContext';
 import { usersAPI } from '../api';
 
+// Pages an admin can switch on/off per user (must match CONFIGURABLE_PAGES on the server)
+export const ACCESS_PAGES = [
+  { id:'projects',       label:'Projects' },
+  { id:'projections',    label:'Monthly Projections' },
+  { id:'projectlookup',  label:'Project Lookup' },
+  { id:'lastpayments',   label:'Last Payments' },
+  { id:'reports',        label:'Reports' },
+  { id:'portalpayments', label:'Filter by Portal' },
+  { id:'tasks',          label:'Tasks' },
+  { id:'boards',         label:'Boards (Kanban)' },
+  { id:'servermgmt',     label:'Server Management' },
+];
+
 export default function UserManagement({ profiles, onAdd, onUpdate, onDelete }) {
   const { user: me, isSuperAdmin } = useAuth();
   const [modal,       setModal]       = useState(null);
@@ -35,6 +48,37 @@ export default function UserManagement({ profiles, onAdd, onUpdate, onDelete }) 
       setTimeout(() => setPwTarget(null), 1800);
     } catch (e) { setPwError(e.message); }
     finally { setPwSaving(false); }
+  };
+
+  // Access modal state
+  const [accessTarget, setAccessTarget] = useState(null);
+  const [accessPages,  setAccessPages]  = useState([]);
+  const [accessAll,    setAccessAll]    = useState(false);
+  const [accessError,  setAccessError]  = useState('');
+  const [accessSaving, setAccessSaving] = useState(false);
+
+  const canManageAccess = u => u.role !== 'super_admin' && (u.role !== 'sub_admin' || isSuperAdmin);
+
+  const openAccess = u => {
+    setAccessTarget(u);
+    setAccessPages(u.permissions ?? ACCESS_PAGES.map(p => p.id));
+    setAccessAll(u.data_scope ? u.data_scope === 'all' : ['super_admin','sub_admin'].includes(u.role));
+    setAccessError('');
+  };
+  const togglePage = id => setAccessPages(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  const saveAccess = async () => {
+    setAccessSaving(true); setAccessError('');
+    try {
+      const all = ACCESS_PAGES.every(p => accessPages.includes(p.id));
+      await onUpdate(accessTarget.id, { permissions: all ? null : accessPages, data_scope: accessAll ? 'all' : 'own' });
+      setAccessTarget(null);
+    } catch (e) { setAccessError(e.message); }
+    finally { setAccessSaving(false); }
+  };
+  const toggleActive = async u => {
+    const next = !u.is_active;
+    if (!window.confirm(next ? `Enable ${u.name}?` : `Disable ${u.name}? They will be signed out and unable to log in.`)) return;
+    try { await onUpdate(u.id, { is_active: next }); } catch (e) { alert(e.message); }
   };
 
   const pms = profiles.filter(u => u.role === 'project_manager');
@@ -111,7 +155,7 @@ export default function UserManagement({ profiles, onAdd, onUpdate, onDelete }) 
               ? <div style={{ padding:'14px 18px' }}><EmptyState icon="👤" message={`No ${label.toLowerCase()} yet`} /></div>
               : <div className="table-wrap"><table>
                   <thead><tr>
-                    <th>Name</th><th>Email</th><th>Role</th>
+                    <th>Name</th><th>Email</th><th>Role</th><th>Access</th>
                     {role==='coordinator' && <th>Assigned PM</th>}
                     <th style={{ textAlign:'right' }}>Actions</th>
                   </tr></thead>
@@ -128,11 +172,27 @@ export default function UserManagement({ profiles, onAdd, onUpdate, onDelete }) 
                         </td>
                         <td><span className="mono text-muted">{u.email}</span></td>
                         <td><RoleBadge role={u.role} /></td>
+                        <td>
+                          {!u.is_active
+                            ? <span className="badge badge-red">Disabled</span>
+                            : u.permissions
+                              ? <span className="badge badge-yellow" title={u.permissions.join(', ') || 'No pages'}>Custom · {u.permissions.length} pages</span>
+                              : <span className="badge badge-green">Full</span>}
+                          {u.data_scope && <span className={`badge ${u.data_scope === 'all' ? 'badge-blue' : 'badge-gray'}`} style={{ marginLeft:4 }}>{u.data_scope === 'all' ? 'All data' : 'Own data'}</span>}
+                        </td>
                         {role==='coordinator' && <td>{pm ? <span className="tag">{pm.name}</span> : <span className="text-muted">—</span>}</td>}
                         <td style={{ textAlign:'right' }}>
                           <div style={{ display:'flex', gap:5, justifyContent:'flex-end' }}>
                             <button className="btn btn-sm btn-ghost btn-icon" onClick={() => openEdit(u)} title="Edit user"><Icon name="edit" size={13} /></button>
                             <button className="btn btn-sm btn-ghost btn-icon" onClick={() => openChangePw(u)} title="Change password"><Icon name="key" size={13} /></button>
+                            {canManageAccess(u) && <>
+                              <button className="btn btn-sm btn-ghost" onClick={() => openAccess(u)} title="Manage page access">Access</button>
+                              {u.id !== me?.id && (
+                                <button className={`btn btn-sm ${u.is_active ? 'btn-ghost' : 'btn-primary'}`} onClick={() => toggleActive(u)}>
+                                  {u.is_active ? 'Disable' : 'Enable'}
+                                </button>
+                              )}
+                            </>}
                             {u.id !== me?.id && isSuperAdmin &&
                               <button className="btn btn-sm btn-danger btn-icon" onClick={() => handleDelete(u.id)}><Icon name="delete" size={13} /></button>
                             }
@@ -192,6 +252,46 @@ export default function UserManagement({ profiles, onAdd, onUpdate, onDelete }) 
               <div style={{ fontSize:11, color:'var(--success)', marginTop:3, fontWeight:500 }}>✓ Passwords match</div>
             )}
           </div>
+        </Modal>
+      )}
+
+      {/* ── Manage page access ───────────────────────────────── */}
+      {accessTarget && (
+        <Modal
+          title={`Page Access — ${accessTarget.name}`}
+          onClose={() => setAccessTarget(null)}
+          small
+          footer={<>
+            <button className="btn btn-ghost" onClick={() => setAccessTarget(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={saveAccess} disabled={accessSaving}>
+              {accessSaving ? <Spinner /> : <><Icon name="check" size={13}/>Save Access</>}
+            </button>
+          </>}
+        >
+          {accessError && <div className="alert alert-error" style={{ marginBottom:14 }}><Icon name="warning" size={13}/>{accessError}</div>}
+          <div style={{ fontSize:12, color:'var(--text3)', marginBottom:12 }}>
+            Choose which sections <strong>{accessTarget.name}</strong> can open. Unchecked sections are hidden and blocked.
+          </div>
+          <div style={{ display:'flex', gap:10, marginBottom:10 }}>
+            <button className="btn btn-xs btn-ghost" onClick={() => setAccessPages(ACCESS_PAGES.map(p => p.id))}>Select all</button>
+            <button className="btn btn-xs btn-ghost" onClick={() => setAccessPages([])}>Clear all</button>
+          </div>
+          <label style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 12px', marginBottom:12, background:'var(--surface2)', borderRadius:8, cursor:'pointer', fontSize:13 }}>
+            <input type="checkbox" style={{ marginTop:3 }} checked={accessAll} onChange={e => setAccessAll(e.target.checked)} />
+            <span>
+              <strong>Can see all users' data</strong>
+              <div style={{ fontSize:11, color:'var(--text3)', marginTop:2 }}>
+                Checked: sees every PM's projects, payments, tasks and boards. Unchecked: sees only their own.
+              </div>
+            </span>
+          </label>
+          <div className="form-label">Sections</div>
+          {ACCESS_PAGES.map(pg => (
+            <label key={pg.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'7px 0', cursor:'pointer', fontSize:13 }}>
+              <input type="checkbox" checked={accessPages.includes(pg.id)} onChange={() => togglePage(pg.id)} />
+              {pg.label}
+            </label>
+          ))}
         </Modal>
       )}
 

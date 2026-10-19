@@ -49,17 +49,20 @@ export const AuthProvider = ({ children }) => {
   const isCoord      = user?.role === 'coordinator';
 
   // Effective manager ID — coords see their PM's data
+  // "All data" access (set by an admin) removes the filter entirely.
+  const seesAll = !!user?.sees_all;
   const effectiveManagerId =
+    seesAll                           ? null :
     user?.role === 'coordinator'      ? user.manager_id :
     user?.role === 'project_manager'  ? user.id :
-    null; // null = admin sees everything
+    user?.id; // admin limited to "own data" → only projects they manage
 
   return (
     <AuthContext.Provider value={{
       user, loading,
       signIn, signOut, refreshUser,
       isAdmin, isSuperAdmin, isPM, isCoord,
-      effectiveManagerId,
+      effectiveManagerId, seesAll,
     }}>
       {children}
     </AuthContext.Provider>

@@ -6,6 +6,7 @@ const { body, validationResult } = require('express-validator');
 const pool     = require('../db/pool');
 const { authenticate } = require('../middleware/auth');
 const { logActivity } = require('../services/logger');
+const { effectivePages, seesAll } = require('../services/access');
 const { sendMail } = require('../services/emailService');
 
 const router = express.Router();
@@ -30,7 +31,7 @@ router.post('/login',
     const { email, password } = req.body;
     try {
       const [rows] = await pool.query(
-        'SELECT id, name, email, password, role, manager_id FROM users WHERE email = ?',
+        'SELECT id, name, email, password, role, manager_id, is_active, permissions, data_scope FROM users WHERE email = ?',
         [email]
       );
       if (!rows.length) return res.status(401).json({ error: 'Invalid email or password' });
@@ -39,7 +40,12 @@ router.post('/login',
       const valid = await bcrypt.compare(password, user.password);
       if (!valid) return res.status(401).json({ error: 'Invalid email or password' });
 
+      if (!user.is_active) return res.status(403).json({ error: 'Your account has been disabled. Contact an administrator.' });
+
       delete user.password;
+      user.pages = effectivePages(user);
+      user.sees_all = seesAll(user);
+      delete user.permissions;
       const token = signToken(user);
       await logActivity({ user, action: 'login', entity: 'session', detail: 'Signed in' });
       res.json({ token, user });

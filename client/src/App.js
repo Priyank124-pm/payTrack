@@ -12,6 +12,8 @@ import ActivityLogs from './pages/ActivityLogs';
 import Tasks from './pages/Tasks';
 import ProjectLookup from './pages/ProjectLookup';
 import ServerManagement from './pages/ServerManagement';
+import PortalPayments from './pages/PortalPayments';
+import Boards from './pages/Boards';
 import { Icon, Modal, Spinner, avatarColor } from './components/UI';
 import { authAPI, notificationsAPI } from './api';
 import './styles/global.css';
@@ -252,12 +254,20 @@ function ChangePasswordModal({ onClose }) {
 
 function AppShell() {
   const { user, loading, signOut, isAdmin } = useAuth();
-  const [page,         setPage]         = useState('projects');
+  // Current tab lives in the URL hash (#/tasks) so a refresh or shared link keeps it.
+  const [page,         setPage]         = useState(() => window.location.hash.replace(/^#\/?/, '') || null);
   const [showChangePw, setShowChangePw] = useState(false);
   const [sidebarOpen,  setSidebarOpen]  = useState(false);
 
   const closeSidebar = () => setSidebarOpen(false);
-  const navTo = (id) => { setPage(id); closeSidebar(); };
+  const navTo = (id) => { window.location.hash = `/${id}`; setPage(id); closeSidebar(); };
+
+  // Back/forward buttons and manual hash edits
+  useEffect(() => {
+    const onHash = () => setPage(window.location.hash.replace(/^#\/?/, '') || null);
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   const { profiles,   createProfile, updateProfile, deleteProfile }                   = useProfiles();
   const {
@@ -277,17 +287,26 @@ function AppShell() {
 
   if (!user) return <Login />;
 
+  // Admin-only pages always follow the role; everything else is gated by the
+  // per-user page access an admin configures in User Management.
+  const allowed = new Set(user.pages || []);
   const nav = [
+    { id: 'dashboard',      icon: 'dashboard',  label: 'Dashboard' },
     ...(isAdmin ? [{ id: 'users', icon: 'users', label: 'User Management' }] : []),
-    { id: 'projects',    icon: 'projects',   label: 'Projects' },
-    { id: 'projections',   icon: 'projection', label: 'Monthly Projections' },
+    { id: 'projects',       icon: 'projects',   label: 'Projects' },
+    { id: 'projections',    icon: 'projection', label: 'Monthly Projections' },
     ...(!isAdmin ? [{ id: 'projectlookup', icon: 'search', label: 'Project Lookup' }] : []),
-    { id: 'lastpayments', icon: 'clock',      label: 'Last Payments' },
-    { id: 'reports',      icon: 'report',     label: 'Reports' },
-    { id: 'tasks',        icon: 'check',      label: 'Tasks' },
+    // Last Payments is hidden for now (page and route kept: add the nav item back to re-enable)
+    { id: 'portalpayments', icon: 'globe',      label: 'Filter by Portal' },
+    { id: 'reports',        icon: 'report',     label: 'Reports' },
+    { id: 'tasks',          icon: 'check',      label: 'Tasks' },
+    { id: 'boards',         icon: 'board',      label: 'Boards' },
     ...(isAdmin ? [{ id: 'activitylogs', icon: 'log', label: 'Activity Logs' }] : []),
-    { id: 'servermgmt',   icon: 'server',     label: 'Server Management' },
-  ];
+    { id: 'servermgmt',     icon: 'server',     label: 'Server Management' },
+  ].filter(n => n.id === 'dashboard' || n.id === 'users' || n.id === 'activitylogs' || allowed.has(n.id));
+
+  // Fall back to the first page this user may open
+  const activePage = nav.some(n => n.id === page) ? page : 'dashboard';
 
   const titles = {
     dashboard: 'Dashboard', users: 'User Management',
@@ -296,12 +315,13 @@ function AppShell() {
     lastpayments: 'Last Payments', reports: 'Reports',
     tasks: 'Tasks', activitylogs: 'Activity Logs',
     servermgmt: 'Server Management',
+    portalpayments: 'Filter by Portal', boards: 'Boards',
   };
 
   const pendingCRs = crs.filter(c => c.status === 'pending').length;
 
   const renderPage = () => {
-    switch (page) {
+    switch (activePage) {
       case 'dashboard':   return <Dashboard projects={projects} milestones={milestones} profiles={profiles} />;
       case 'users':       return isAdmin ? <UserManagement profiles={profiles} onAdd={createProfile} onUpdate={updateProfile} onDelete={deleteProfile} /> : null;
       case 'projects':    return (
@@ -326,6 +346,8 @@ function AppShell() {
       case 'tasks':        return <Tasks profiles={profiles} />;
       case 'activitylogs': return isAdmin ? <ActivityLogs /> : null;
       case 'servermgmt':   return <ServerManagement profiles={profiles} />;
+      case 'portalpayments': return <PortalPayments projects={projects} milestones={milestones} profiles={profiles} />;
+      case 'boards':       return <Boards profiles={profiles} />;
       default:            return null;
     }
   };
@@ -361,7 +383,7 @@ function AppShell() {
           <div className="nav-section">
             <div className="nav-section-label">Navigation</div>
             {nav.map(n => (
-              <div key={n.id} className={`nav-item${page === n.id ? ' active' : ''}`} onClick={() => navTo(n.id)}>
+              <div key={n.id} className={`nav-item${activePage === n.id ? ' active' : ''}`} onClick={() => navTo(n.id)}>
                 <Icon name={n.icon} size={15} />
                 {n.label}
                 {n.id === 'projects' && pendingCRs > 0 && isAdmin && (
@@ -399,7 +421,7 @@ function AppShell() {
                 <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
               </svg>
             </button>
-            <div className="page-title">{titles[page]}</div>
+            <div className="page-title">{titles[activePage]}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span className="topbar-date" style={{ fontSize: 12, color: 'var(--text3)' }}>
