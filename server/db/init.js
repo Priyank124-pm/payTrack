@@ -489,6 +489,90 @@ async function initDB() {
       )
     `);
 
+    // ── Manual access control ───────────────────────────────────
+    await migrate(`ALTER TABLE users ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1`);
+    await migrate(`ALTER TABLE users ADD COLUMN permissions TEXT DEFAULT NULL`);
+    await migrate(`ALTER TABLE users ADD COLUMN data_scope ENUM('own','all') DEFAULT NULL`);
+
+    // ── Kanban boards ───────────────────────────────────────────
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS boards (
+        id          CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+        name        VARCHAR(150) NOT NULL,
+        description TEXT         DEFAULT NULL,
+        created_by  CHAR(36)     DEFAULT NULL,
+        created_at  DATETIME     DEFAULT CURRENT_TIMESTAMP,
+        updated_at  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS board_members (
+        board_id CHAR(36) NOT NULL,
+        user_id  CHAR(36) NOT NULL,
+        PRIMARY KEY (board_id, user_id),
+        CONSTRAINT fk_bm_board FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE,
+        CONSTRAINT fk_bm_user  FOREIGN KEY (user_id)  REFERENCES users(id)  ON DELETE CASCADE
+      )
+    `);
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS board_columns (
+        id       CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+        board_id CHAR(36)     NOT NULL,
+        name     VARCHAR(100) NOT NULL,
+        position INT          NOT NULL DEFAULT 0,
+        CONSTRAINT fk_bcol_board FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE,
+        INDEX idx_bcol_board (board_id)
+      )
+    `);
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS board_tasks (
+        id          CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+        board_id    CHAR(36)     NOT NULL,
+        column_id   CHAR(36)     NOT NULL,
+        title       VARCHAR(255) NOT NULL,
+        description TEXT         DEFAULT NULL,
+        assigned_to CHAR(36)     DEFAULT NULL,
+        start_date  DATE         DEFAULT NULL,
+        due_date    DATE         DEFAULT NULL,
+        position    INT          NOT NULL DEFAULT 0,
+        created_by  CHAR(36)     DEFAULT NULL,
+        created_at  DATETIME     DEFAULT CURRENT_TIMESTAMP,
+        updated_at  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        CONSTRAINT fk_bt_board  FOREIGN KEY (board_id)  REFERENCES boards(id)        ON DELETE CASCADE,
+        CONSTRAINT fk_bt_column FOREIGN KEY (column_id) REFERENCES board_columns(id) ON DELETE CASCADE,
+        INDEX idx_bt_board (board_id),
+        INDEX idx_bt_column (column_id)
+      )
+    `);
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS board_task_comments (
+        id        CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+        task_id   CHAR(36)     NOT NULL,
+        user_id   CHAR(36)     DEFAULT NULL,
+        user_name VARCHAR(120) NOT NULL,
+        user_role VARCHAR(50)  NOT NULL,
+        comment   TEXT         NOT NULL,
+        created_at DATETIME    DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT fk_btc_task FOREIGN KEY (task_id) REFERENCES board_tasks(id) ON DELETE CASCADE,
+        INDEX idx_btc_task (task_id)
+      )
+    `);
+    await migrate(`
+      CREATE TABLE IF NOT EXISTS board_task_attachments (
+        id          CHAR(36)     PRIMARY KEY DEFAULT (UUID()),
+        task_id     CHAR(36)     NOT NULL,
+        file_name   VARCHAR(255) NOT NULL,
+        stored_name VARCHAR(255) NOT NULL,
+        mime_type   VARCHAR(120) DEFAULT NULL,
+        size        INT          NOT NULL DEFAULT 0,
+        uploaded_by CHAR(36)     DEFAULT NULL,
+        uploader_name VARCHAR(120) DEFAULT NULL,
+        created_at  DATETIME     DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT fk_bta_task FOREIGN KEY (task_id) REFERENCES board_tasks(id) ON DELETE CASCADE,
+        INDEX idx_bta_task (task_id)
+      )
+    `);
+
     console.log('✅  Database schema initialised');
   } catch (err) {
     console.error('❌  Schema init error:', err.message);

@@ -90,7 +90,7 @@ export default function Projects({
   archivedProjects, archivedLoading, onLoadArchived,
   onAddCR, onApproveCR, onRejectCR,
 }) {
-  const { user:me, isAdmin, isSuperAdmin, effectiveManagerId } = useAuth();
+  const { user:me, isAdmin, isSuperAdmin, seesAll, effectiveManagerId } = useAuth();
   const [modal,        setModal]        = useState(null);
   const [form,         setForm]         = useState({});
   const [crForm,       setCRForm]       = useState({});
@@ -218,9 +218,9 @@ export default function Projects({
   };
 
   const pms = profiles.filter(u=>u.role==='project_manager');
-  const allMyProjects = isAdmin ? projects : projects.filter(p=>p.manager_id===effectiveManagerId);
+  const allMyProjects = seesAll ? projects : projects.filter(p=>p.manager_id===effectiveManagerId);
   const allFiltered = allMyProjects.filter(p => {
-    if (isAdmin && filterPM !== 'all' && p.manager_id !== filterPM) return false;
+    if (seesAll && filterPM !== 'all' && p.manager_id !== filterPM) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       if (!p.name.toLowerCase().includes(q) && !p.client.toLowerCase().includes(q)) return false;
@@ -231,7 +231,7 @@ export default function Projects({
   const serverMaintProjects = allFiltered.filter(p => p.status === 'maintenance' || p.status === 'server');
   const productionProjects  = allFiltered.filter(p => p.status === 'production');
   const filteredArchived = archivedProjects.filter(p => {
-    if (isAdmin && filterPM !== 'all' && p.manager_id !== filterPM) return false;
+    if (seesAll && filterPM !== 'all' && p.manager_id !== filterPM) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       if (!p.name.toLowerCase().includes(q) && !p.client.toLowerCase().includes(q)) return false;
@@ -286,7 +286,7 @@ export default function Projects({
           </div>
         </div>
         <div style={{ display:'flex', gap:8, alignItems:'flex-end', flexWrap:'wrap' }}>
-          {isAdmin && pms.length > 0 && (
+          {seesAll && pms.length > 0 && (
             <div>
               <div className="form-label">Filter by PM</div>
               <select

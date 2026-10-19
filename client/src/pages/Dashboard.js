@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { fmt, pct, MONTHS, CURRENT_MONTH, CURRENT_YEAR, EmptyState, StatusBadge, ProgressBar, Icon } from '../components/UI';
 import { calcNet, COMMISSION_PORTALS, PORTALS } from '../hooks/useData';
+import { GroupedBars, PortalBars, StatusBar, SERIES } from '../components/Charts';
 
 export default function Dashboard({ projects, milestones, profiles = [] }) {
-  const { user: me, isAdmin, effectiveManagerId } = useAuth();
+  const { user: me, isAdmin, seesAll, effectiveManagerId } = useAuth();
   const [filterPM,    setFilterPM]    = useState('all');
   const [filterCoord, setFilterCoord] = useState('all');
 
@@ -20,7 +21,7 @@ export default function Dashboard({ projects, milestones, profiles = [] }) {
     setFilterCoord('all'); // reset PC when PM changes
   };
 
-  const baseProjects = isAdmin ? projects : projects.filter(p => p.manager_id === effectiveManagerId);
+  const baseProjects = seesAll ? projects : projects.filter(p => p.manager_id === effectiveManagerId);
   const myProjects   = isAdmin
     ? baseProjects.filter(p => {
         if (filterPM    !== 'all' && p.manager_id    !== filterPM)    return false;
@@ -50,6 +51,26 @@ export default function Dashboard({ projects, milestones, profiles = [] }) {
     { label:`${MONTHS[CURRENT_MONTH-1]?.label} Target`, value:fmt(curTarget),   sub:'this month', color:'#7C3AED', icon:'📅' },
     { label:`${MONTHS[CURRENT_MONTH-1]?.label} Achieved`,value:fmt(curAchieved),sub:`${pct(curAchieved,curTarget)}% of target`, color:'#D97706', icon:'✅' },
   ];
+
+  // ── Chart data (net of portal fees, current year) ──
+  const portalOf = id => myProjects.find(p => p.id === id)?.portal;
+  const yearMs   = myMilestones.filter(m => m.year === CURRENT_YEAR);
+  const monthly  = MONTHS.map(mo => {
+    const ms = yearMs.filter(m => m.month === mo.val);
+    return {
+      label: mo.label,
+      a: ms.reduce((t, m) => t + calcNet(parseFloat(m.amount)   || 0, portalOf(m.project_id)), 0),
+      b: ms.reduce((t, m) => t + calcNet(parseFloat(m.achieved) || 0, portalOf(m.project_id)), 0),
+    };
+  });
+  const portalRows = Object.values(yearMs.reduce((acc, m) => {
+    const key = portalOf(m.project_id) || 'Direct';
+    const o = acc[key] || (acc[key] = { label: key, projected: 0, received: 0 });
+    o.projected += calcNet(parseFloat(m.amount)   || 0, key);
+    o.received  += calcNet(parseFloat(m.achieved) || 0, key);
+    return acc;
+  }, {})).sort((x, y) => y.projected - x.projected);
+  const statusCounts = curMs.reduce((c, m) => ({ ...c, [m.status]: (c[m.status] || 0) + 1 }), {});
 
   const recent = [...myMilestones]
     .sort((a,b) => new Date(b.updated_at||0)-new Date(a.updated_at||0))
@@ -101,7 +122,7 @@ export default function Dashboard({ projects, milestones, profiles = [] }) {
           <div className="text-muted" style={{ marginTop:3 }}>{new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
         </div>
 
-        {isAdmin && pms.length > 0 && (
+        {seesAll && pms.length > 0 && (
           <div style={{ display:'flex', gap:8, alignItems:'flex-end', flexWrap:'wrap' }}>
             <div className="form-group" style={{ marginBottom:0 }}>
               <label className="form-label">PM</label>
@@ -151,6 +172,30 @@ export default function Dashboard({ projects, milestones, profiles = [] }) {
             <div className="stat-sub">{s.sub}</div>
           </div>
         ))}
+      </div>
+
+      {/* ── Charts ─────────────────────────────────────── */}
+      <div className="dash-charts">
+        <div className="card card-p">
+          <div className="chart-title">Projected vs received <span>· {CURRENT_YEAR}, net of fees</span></div>
+          <GroupedBars data={monthly} a={{ name:'Projected', color:SERIES.projected }} b={{ name:'Received', color:SERIES.received }} />
+        </div>
+        <div className="card card-p">
+          <div className="chart-title">By portal <span>· {CURRENT_YEAR}</span></div>
+          <PortalBars rows={portalRows} />
+        </div>
+      </div>
+      <div className="dash-charts dash-charts-2">
+        <div className="card card-p">
+          <div className="chart-title">{MONTHS[CURRENT_MONTH-1]?.label} milestone status</div>
+          <StatusBar counts={statusCounts} />
+        </div>
+        <div className="card card-p">
+          <div className="chart-title">{MONTHS[CURRENT_MONTH-1]?.label} progress <span>· received vs projected</span></div>
+          <div style={{ fontFamily:'var(--font-display)', fontSize:34, fontWeight:700, letterSpacing:'-1px', margin:'6px 0 2px' }}>{pct(curAchieved, curTarget)}%</div>
+          <div className="text-muted" style={{ marginBottom:12 }}>{fmt(curAchieved)} of {fmt(curTarget)} net</div>
+          <ProgressBar value={pct(curAchieved, curTarget)} color={SERIES.projected} />
+        </div>
       </div>
 
       <div className="grid-2" style={{ gap:14 }}>

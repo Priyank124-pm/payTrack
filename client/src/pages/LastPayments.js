@@ -18,14 +18,14 @@ function ageBadge(days) {
 }
 
 export default function LastPayments({ projects, milestones, profiles }) {
-  const { isAdmin, effectiveManagerId } = useAuth();
+  const { isAdmin, seesAll, effectiveManagerId } = useAuth();
   const [filterPM,    setFilterPM]    = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   const pms = profiles.filter(u => u.role === 'project_manager');
 
   // Only active (non-archived, non-maintenance/server/production) projects
-  const activeProjects = (isAdmin ? projects : projects.filter(p => p.manager_id === effectiveManagerId))
+  const activeProjects = (seesAll ? projects : projects.filter(p => p.manager_id === effectiveManagerId))
     .filter(p => !p.archived && p.status === 'active');
 
   const visProjects = activeProjects.filter(p => {
@@ -106,7 +106,7 @@ export default function LastPayments({ projects, milestones, profiles }) {
           </div>
         </div>
         <div style={{ display:'flex', gap:8, alignItems:'flex-end', flexWrap:'wrap' }}>
-          {isAdmin && pms.length > 0 && (
+          {seesAll && pms.length > 0 && (
             <div className="form-group" style={{ marginBottom:0 }}>
               <label className="form-label">Filter by PM</label>
               <select className="form-control form-control-sm" value={filterPM} onChange={e => setFilterPM(e.target.value)}>
@@ -170,7 +170,7 @@ export default function LastPayments({ projects, milestones, profiles }) {
             <th>Project</th>
             <th>Client</th>
             <th>Portal</th>
-            {isAdmin && <th>PM</th>}
+            {seesAll && <th>PM</th>}
             <th>Last Payment</th>
             <th>Last Amount</th>
             <th>Net Amount</th>
@@ -196,7 +196,7 @@ export default function LastPayments({ projects, milestones, profiles }) {
                     <span className="tag">{row.portal}</span>
                     {hasC && <span className="badge badge-yellow" style={{ fontSize:10, marginLeft:4 }}>-20%</span>}
                   </td>
-                  {isAdmin && (
+                  {seesAll && (
                     <td>
                       {pm
                         ? <div style={{ display:'flex', alignItems:'center', gap:5 }}>
@@ -246,7 +246,7 @@ export default function LastPayments({ projects, milestones, profiles }) {
                   <td style={{ fontWeight:700 }}>{row.name}</td>
                   <td style={{ color:'var(--text2)', fontSize:13 }}>{row.client}</td>
                   <td><span className="tag">{row.portal}</span></td>
-                  {isAdmin && (
+                  {seesAll && (
                     <td>
                       {pm
                         ? <div style={{ display:'flex', alignItems:'center', gap:5 }}>

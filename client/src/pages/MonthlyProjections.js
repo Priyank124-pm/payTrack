@@ -105,7 +105,7 @@ function MilestoneFields({ vals, onChange, portal, onSave, onCancel, saving, isE
 
 
 export default function MonthlyProjections({ projects, milestones, profiles, onAdd, onUpdate, onDelete }) {
-  const { user: me, isAdmin, effectiveManagerId } = useAuth();
+  const { user: me, isAdmin, seesAll, effectiveManagerId } = useAuth();
   const [activeTab,   setActiveTab]   = useState('projections');
   const [month,       setMonth]       = useState(CURRENT_MONTH);
   const [year,        setYear]        = useState(CURRENT_YEAR);
@@ -130,7 +130,7 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
   const isCurrentMonth = month === CURRENT_MONTH && year === CURRENT_YEAR;
 
   const visProjects = projects.filter(pr => {
-    if (!isAdmin && pr.manager_id !== effectiveManagerId) return false;
+    if (!seesAll && pr.manager_id !== effectiveManagerId) return false;
     if (filterPM !== 'all' && pr.manager_id !== filterPM) return false;
     if (filterCoord !== 'all' && pr.coordinator_id !== filterCoord) return false;
     if (isCurrentMonth && pr.all_payments_received) return false;
@@ -154,7 +154,7 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
 
   // ── Pending Payments tab data ───────────────────────────────────
   const myProjectIds = new Set(visProjects.map(p => p.id).concat(
-    projects.filter(pr => isAdmin || pr.manager_id === effectiveManagerId).map(p => p.id)
+    projects.filter(pr => seesAll || pr.manager_id === effectiveManagerId).map(p => p.id)
   ));
   const pendingMs = milestones.filter(m => {
     if (!myProjectIds.has(m.project_id)) return false;
@@ -586,7 +586,7 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
                 </div>
 
                 {/* PM filter — admin only */}
-                {isAdmin && pms.length > 0 && (
+                {seesAll && pms.length > 0 && (
                   <div className="form-group" style={{ marginBottom:0 }}>
                     <label className="form-label">PM</label>
                     <select className="form-control form-control-sm" value={pendPM} onChange={e=>setPendPM(e.target.value)}>

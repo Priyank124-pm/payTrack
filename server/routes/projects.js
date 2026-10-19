@@ -28,7 +28,7 @@ router.get('/', async (req, res) => {
     const params  = [showArchived ? 1 : 0];
     const wheres  = ['p.archived = ?'];
 
-    if (req.user.role === 'coordinator') {
+    if ((req.user.role === 'coordinator' && !req.user.sees_all)) {
       wheres.push('p.coordinator_id = ?');
       params.push(req.user.id);
     } else {

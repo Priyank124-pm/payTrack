@@ -9,7 +9,7 @@ const router = express.Router();
 router.use(authenticate);
 
 function scopeClause(req, managerId, qManagerId) {
-  if (req.user.role === 'coordinator') return { clause: 'p.coordinator_id = ?', param: req.user.id };
+  if ((req.user.role === 'coordinator' && !req.user.sees_all)) return { clause: 'p.coordinator_id = ?', param: req.user.id };
   if (managerId) return { clause: 'p.manager_id = ?', param: managerId };
   if (qManagerId) return { clause: 'p.manager_id = ?', param: qManagerId };
   return null;

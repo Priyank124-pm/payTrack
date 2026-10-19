@@ -1,5 +1,6 @@
 const jwt  = require('jsonwebtoken');
 const pool = require('../db/pool');
+const { effectivePages, seesAll } = require('../services/access');
 
 // Verify JWT and attach user to req
 const authenticate = async (req, res, next) => {
@@ -11,11 +12,13 @@ const authenticate = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const [rows] = await pool.query(
-      'SELECT id, name, email, role, manager_id FROM users WHERE id = ?',
+      'SELECT id, name, email, role, manager_id, is_active, permissions, data_scope FROM users WHERE id = ?',
       [decoded.id]
     );
     if (!rows.length) return res.status(401).json({ error: 'User not found' });
-    req.user = rows[0];
+    if (!rows[0].is_active) return res.status(403).json({ error: 'Your account has been disabled. Contact an administrator.' });
+    req.user = { ...rows[0], pages: effectivePages(rows[0]), sees_all: seesAll(rows[0]) };
+    delete req.user.permissions;
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
@@ -35,6 +38,8 @@ const isSuperAdmin = authorize('super_admin');
 
 // Resolve the effective manager ID for PM / coordinator
 const getEffectiveManagerId = (user) => {
+  if (seesAll(user)) return null;                       // "all data" access → no filter
+  if (user.role === 'super_admin' || user.role === 'sub_admin') return user.id; // admin limited to own
   if (user.role === 'coordinator')      return user.manager_id;
   if (user.role === 'project_manager') return user.id;
   return null; // admins → no filter

@@ -13,7 +13,7 @@ const isPM    = u => u.role === 'project_manager';
 
 // ── visibility check ─────────────────────────────────────────────
 async function canSeeTask(user, task) {
-  if (isAdmin(user)) return true;
+  if (user.sees_all) return true;
   if (task.assigned_to === user.id || task.assigned_by === user.id) return true;
   if (isPM(user)) {
     // also see tasks assigned to their coordinators
@@ -30,7 +30,7 @@ router.get('/', async (req, res) => {
     const params = [];
     const wheres = [];
 
-    if (isAdmin(req.user)) {
+    if (req.user.sees_all) {
       // see all
     } else if (isPM(req.user)) {
       const [coords] = await pool.query('SELECT id FROM users WHERE manager_id = ?', [req.user.id]);

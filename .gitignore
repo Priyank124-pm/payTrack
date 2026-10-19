@@ -15,3 +15,4 @@ client/node_modules
 client/package-lock.json
 client/dist
 client/build
+server/uploads
