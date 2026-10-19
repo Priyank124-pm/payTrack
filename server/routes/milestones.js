@@ -2,6 +2,7 @@ const express = require('express');
 const { body, query, validationResult } = require('express-validator');
 const pool    = require('../db/pool');
 const { authenticate, getEffectiveManagerId } = require('../middleware/auth');
+const { resolvedCols } = require('../services/history');
 const { logActivity } = require('../services/logger');
 
 const router = express.Router();
@@ -24,7 +25,7 @@ async function canAccessProject(user, projectId) {
 router.get('/', async (req, res) => {
   try {
     let sql = `
-      SELECT m.*, p.name AS project_name, p.portal, p.client
+      SELECT m.*, p.name AS project_name, p.client, ${resolvedCols('m', 'p')}
       FROM milestones m
       JOIN projects p ON p.id = m.project_id
     `;
@@ -71,10 +72,10 @@ router.get('/lookup', async (req, res) => {
   try {
     if (!req.query.project_id) return res.json([]);
     const params = [req.query.project_id];
-    let sql = 'SELECT * FROM milestones WHERE project_id = ?';
-    if (req.query.month) { sql += ' AND month = ?';  params.push(parseInt(req.query.month)); }
-    if (req.query.year)  { sql += ' AND year = ?';   params.push(parseInt(req.query.year)); }
-    sql += ' ORDER BY target_date ASC, created_at ASC';
+    let sql = `SELECT m.*, ${resolvedCols('m', 'p')} FROM milestones m JOIN projects p ON p.id = m.project_id WHERE m.project_id = ?`;
+    if (req.query.month) { sql += ' AND m.month = ?';  params.push(parseInt(req.query.month)); }
+    if (req.query.year)  { sql += ' AND m.year = ?';   params.push(parseInt(req.query.year)); }
+    sql += ' ORDER BY m.target_date ASC, m.created_at ASC';
     const [rows] = await pool.query(sql, params);
     res.json(rows);
   } catch (err) {

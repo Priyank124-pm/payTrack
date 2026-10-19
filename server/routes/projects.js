@@ -4,6 +4,7 @@ const pool    = require('../db/pool');
 const { authenticate, isAdmin, isSuperAdmin, getEffectiveManagerId } = require('../middleware/auth');
 const { logActivity } = require('../services/logger');
 const { notify }      = require('../services/notifyService');
+const { recordChanges } = require('../services/history');
 
 const router = express.Router();
 router.use(authenticate);
@@ -295,6 +296,9 @@ router.patch('/:id', async (req, res) => {
     if (!fields.length) return res.status(400).json({ error: 'Nothing to update' });
 
     await pool.query(`UPDATE projects SET ${fields.join(', ')} WHERE id = ?`, [...values, req.params.id]);
+    // Portal / PM / coordinator changes take effect from `effective_from` (default today);
+    // earlier months keep the previous value.
+    await recordChanges(pool, req.params.id, existing[0], req.body, req.body.effective_from, req.user.id);
     const [rows] = await pool.query(
       `SELECT p.*, u.name AS manager_name, COALESCE(SUM(m.achieved),0) AS total_achieved
        FROM projects p LEFT JOIN users u ON u.id = p.manager_id
@@ -313,6 +317,26 @@ router.patch('/:id', async (req, res) => {
       });
     }
     res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── GET /api/projects/:id/history ──────────────────────────────
+router.get('/:id/history', async (req, res) => {
+  try {
+    const [pr] = await pool.query('SELECT manager_id, coordinator_id FROM projects WHERE id = ?', [req.params.id]);
+    if (!pr.length) return res.status(404).json({ error: 'Project not found' });
+    const managerId = getEffectiveManagerId(req.user);
+    if (managerId && pr[0].manager_id !== managerId && pr[0].coordinator_id !== req.user.id) return res.status(403).json({ error: 'Access denied' });
+    const [rows] = await pool.query(
+      `SELECT h.id, h.field, h.value, h.effective_from, u.name AS value_name, cb.name AS changed_by_name
+       FROM project_history h
+       LEFT JOIN users u  ON u.id  = h.value AND h.field <> 'portal'
+       LEFT JOIN users cb ON cb.id = h.changed_by
+       WHERE h.project_id = ? ORDER BY h.field, h.effective_from`, [req.params.id]);
+    res.json(rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });

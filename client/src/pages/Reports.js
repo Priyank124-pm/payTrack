@@ -92,12 +92,9 @@ export default function Reports({ projects, profiles = [] }) {
   // Commission-aware net calculations
   const netForRow = (r) => {
     // sum net targets for this PM's projects
-    const myProjects = projects.filter(p=>p.manager_id===r.pm_id);
-    const pdRows     = projectDetail.filter(pd=>myProjects.some(mp=>mp.id===pd.id));
-    return pdRows.reduce((s,pd)=>{
-      const p = myProjects.find(mp=>mp.id===pd.id);
-      return s + calcNet(parseFloat(pd.month_gross)||0, p?.portal);
-    },0);
+    // portal / PM here are the ones in force for the selected month (resolved by the server)
+    return projectDetail.filter(pd=>pd.manager_id===r.pm_id)
+      .reduce((s,pd)=>s + calcNet(parseFloat(pd.month_gross)||0, pd.portal),0);
   };
 
   return (
@@ -159,7 +156,7 @@ export default function Reports({ projects, profiles = [] }) {
         <div className="stats-grid">
           {[
             {label:'Gross Target',   value:fmt(gGross),                       color:'var(--text2)', icon:'🎯'},
-            {label:'Commission',     value:'−'+fmt(gGross-pmSummary.reduce((s,r)=>s+calcNet(parseFloat(r.gross_target)||0,projects.find(p=>p.manager_id===r.pm_id)?.portal||'Direct'),0)), color:'var(--warning)', icon:'📉'},
+            {label:'Commission',     value:'−'+fmt(gGross-pmSummary.reduce((s,r)=>s+netForRow(r),0)), color:'var(--warning)', icon:'📉'},
             {label:'Gross Achieved', value:fmt(gAchieved),                    color:'var(--success)',icon:'✅'},
             {label:'Active Projects',value:projects.filter(p=>!p.all_payments_received).length, color:'var(--purple)', icon:'📁'},
           ].map(s=>(

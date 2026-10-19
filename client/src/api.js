@@ -60,6 +60,7 @@ export const projectsAPI = {
   lookup:       (q)        => get(`/api/projects/lookup?q=${encodeURIComponent(q)}`),
   get:          (id)       => get(`/api/projects/${id}`),
   getComments:  (id)       => get(`/api/projects/${id}/comments`),
+  history:      (id)       => get(`/api/projects/${id}/history`),
   addComment:   (id, comment) => post(`/api/projects/${id}/comments`, { comment }),
   create:       (body)     => post('/api/projects', body),
   update:       (id, body) => patch(`/api/projects/${id}`, body),
