@@ -21,7 +21,7 @@ router.get('/', async (req, res) => {
     `;
     const params = [];
     const wheres = [];
-    if (req.user.role === 'coordinator') { wheres.push('p.coordinator_id = ?'); params.push(req.user.id); }
+    if ((req.user.role === 'coordinator' && !req.user.sees_all)) { wheres.push('p.coordinator_id = ?'); params.push(req.user.id); }
     else if (managerId) { wheres.push('p.manager_id = ?'); params.push(managerId); }
     if (req.query.status)  { wheres.push('ss.status = ?');   params.push(req.query.status); }
     if (req.query.at_risk) { wheres.push('ss.at_risk = 1'); }

@@ -4,6 +4,7 @@ const { body, validationResult } = require('express-validator');
 const pool     = require('../db/pool');
 const { authenticate, isAdmin, isSuperAdmin } = require('../middleware/auth');
 const { logActivity } = require('../services/logger');
+const { CONFIGURABLE_PAGES, parsePermissions } = require('../services/access');
 
 const router = express.Router();
 router.use(authenticate);
@@ -14,12 +15,13 @@ router.get('/', async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT u.id, u.name, u.email, u.role, u.manager_id, u.created_at,
+              u.is_active, u.permissions, u.data_scope,
               m.name AS manager_name
        FROM users u
        LEFT JOIN users m ON m.id = u.manager_id
        ORDER BY u.role, u.name`
     );
-    res.json(rows);
+    res.json(rows.map(r => ({ ...r, permissions: parsePermissions(r.permissions) })));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -91,6 +93,9 @@ router.patch('/:id',
   [
     body('name').optional().trim().notEmpty(),
     body('role').optional().isIn(['sub_admin','project_manager','coordinator']),
+    body('is_active').optional().isBoolean(),
+    body('permissions').optional({ nullable: true }).isArray(),
+    body('data_scope').optional({ nullable: true }).isIn(['own','all']),
   ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -100,8 +105,29 @@ router.patch('/:id',
       return res.status(403).json({ error: 'Only Super Admin can assign Sub Admin role' });
     }
 
-    const { name, role, manager_id } = req.body;
+    const { name, role, manager_id, is_active, permissions, data_scope } = req.body;
     const fields = [], values = [];
+
+    // Access changes (enable/disable, page permissions)
+    if (is_active !== undefined || permissions !== undefined || data_scope !== undefined) {
+      try {
+        const [t] = await pool.query('SELECT role FROM users WHERE id = ?', [req.params.id]);
+        if (!t.length) return res.status(404).json({ error: 'User not found' });
+        if (t[0].role === 'super_admin') return res.status(403).json({ error: 'Super Admin access cannot be changed' });
+        if (t[0].role === 'sub_admin' && req.user.role !== 'super_admin') {
+          return res.status(403).json({ error: 'Only Super Admin can change a Sub Admin\'s access' });
+        }
+      } catch { return res.status(500).json({ error: 'Server error' }); }
+      if (req.params.id === req.user.id && is_active !== undefined && !(is_active === true || is_active === 'true' || is_active === 1)) {
+        return res.status(400).json({ error: 'You cannot disable your own account' });
+      }
+    }
+    if (is_active !== undefined)  { fields.push('is_active = ?');   values.push(is_active === true || is_active === 'true' || is_active === 1 ? 1 : 0); }
+    if (data_scope !== undefined)  { fields.push('data_scope = ?');  values.push(data_scope || null); }
+    if (permissions !== undefined) {
+      fields.push('permissions = ?');
+      values.push(permissions === null ? null : JSON.stringify(permissions.filter(p => CONFIGURABLE_PAGES.includes(p))));
+    }
     if (name !== undefined)       { fields.push('name = ?');       values.push(name); }
     if (role !== undefined)       { fields.push('role = ?');       values.push(role); }
     if (manager_id !== undefined) { fields.push('manager_id = ?'); values.push(manager_id || null); }
@@ -110,12 +136,17 @@ router.patch('/:id',
     try {
       await pool.query(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`, [...values, req.params.id]);
       const [rows] = await pool.query(
-        'SELECT id, name, email, role, manager_id, created_at FROM users WHERE id = ?',
+        'SELECT id, name, email, role, manager_id, created_at, is_active, permissions, data_scope FROM users WHERE id = ?',
         [req.params.id]
       );
       if (!rows.length) return res.status(404).json({ error: 'User not found' });
-      await logActivity({ user: req.user, action: 'update', entity: 'user', entityId: req.params.id, detail: `Updated user '${rows[0].name}'` });
-      res.json(rows[0]);
+      const detail = is_active !== undefined
+        ? `${rows[0].is_active ? 'Enabled' : 'Disabled'} user '${rows[0].name}'`
+        : permissions !== undefined
+          ? `Updated page access for '${rows[0].name}'`
+          : `Updated user '${rows[0].name}'`;
+      await logActivity({ user: req.user, action: 'update', entity: 'user', entityId: req.params.id, detail });
+      res.json({ ...rows[0], permissions: parsePermissions(rows[0].permissions) });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Server error' });

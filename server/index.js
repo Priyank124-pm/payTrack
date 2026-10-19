@@ -42,6 +42,7 @@ app.use('/api/server-subscriptions', require('./routes/serverSubscriptions'));
 app.use('/api/invoices',             require('./routes/invoices'));
 app.use('/api/public',               require('./routes/publicCheckout'));
 app.use('/api/contact-requests',     require('./routes/contactRequests'));
+app.use('/api/boards',               require('./routes/boards'));
 
 // ── Health check ───────────────────────────────────────────────
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));

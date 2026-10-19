@@ -20,6 +20,11 @@ async function request(method, path, body) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const msg = data.error || data.errors?.[0]?.msg || `HTTP ${res.status}`;
+    // Account disabled by an admin mid-session → drop the token and return to login
+    if (res.status === 403 && /account has been disabled/i.test(msg)) {
+      localStorage.removeItem('nexportal_token');
+      window.location.reload();
+    }
     throw new Error(msg);
   }
   return data;
@@ -156,4 +161,42 @@ export const invoicesAPI = {
 export const contactRequestsAPI = {
   list:         ()          => get('/api/contact-requests'),
   updateStatus: (id, status) => patch(`/api/contact-requests/${id}/status`, { status }),
+};
+
+// ── Kanban boards ──────────────────────────────────────────────
+// File upload/download need FormData / blobs, so they bypass request().
+const authHeader = () => { const t = getToken(); return t ? { Authorization: `Bearer ${t}` } : {}; };
+
+export const boardsAPI = {
+  list:         ()           => get('/api/boards'),
+  get:          (id)         => get(`/api/boards/${id}`),
+  create:       (body)       => post('/api/boards', body),
+  update:       (id, body)   => patch(`/api/boards/${id}`, body),
+  remove:       (id)         => del(`/api/boards/${id}`),
+  addColumn:    (id, name)   => post(`/api/boards/${id}/columns`, { name }),
+  renameColumn: (colId, name)=> patch(`/api/boards/columns/${colId}`, { name }),
+  removeColumn: (colId)      => del(`/api/boards/columns/${colId}`),
+  createTask:   (id, body)   => post(`/api/boards/${id}/tasks`, body),
+  updateTask:   (tid, body)  => patch(`/api/boards/tasks/${tid}`, body),
+  removeTask:   (tid)        => del(`/api/boards/tasks/${tid}`),
+  comments:     (tid)        => get(`/api/boards/tasks/${tid}/comments`),
+  addComment:   (tid, comment) => post(`/api/boards/tasks/${tid}/comments`, { comment }),
+  attachments:  (tid)        => get(`/api/boards/tasks/${tid}/attachments`),
+  removeAttachment: (aid)    => del(`/api/boards/attachments/${aid}`),
+  upload: async (tid, files) => {
+    const fd = new FormData();
+    [...files].forEach(f => fd.append('files', f));
+    const res  = await fetch(`${BASE}/api/boards/tasks/${tid}/attachments`, { method: 'POST', headers: authHeader(), body: fd });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  },
+  download: async (aid, fileName) => {
+    const res = await fetch(`${BASE}/api/boards/attachments/${aid}/download`, { headers: authHeader() });
+    if (!res.ok) throw new Error('Download failed');
+    const url = URL.createObjectURL(await res.blob());
+    const a = Object.assign(document.createElement('a'), { href: url, download: fileName });
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 };

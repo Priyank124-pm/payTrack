@@ -14,7 +14,7 @@ function toCSV(rows) {
 }
 
 export default function Reports({ projects, profiles = [] }) {
-  const { isAdmin, effectiveManagerId } = useAuth();
+  const { isAdmin, seesAll, effectiveManagerId } = useAuth();
   const [month,       setMonth]       = useState(CURRENT_MONTH);
   const [year,        setYear]        = useState(CURRENT_YEAR);
   const [filterPM,    setFilterPM]    = useState('all');
@@ -117,7 +117,7 @@ export default function Reports({ projects, profiles = [] }) {
               {YEARS.map(y=><option key={y} value={y}>{y}</option>)}
             </select>
           </div>
-          {isAdmin && pms.length > 0 && (
+          {seesAll && pms.length > 0 && (
             <div className="form-group" style={{marginBottom:0}}>
               <label className="form-label">PM</label>
               <select className="form-control form-control-sm" value={filterPM} onChange={e => setFilterPM(e.target.value)}>
@@ -224,7 +224,7 @@ export default function Reports({ projects, profiles = [] }) {
             <div className="table-wrap"><table>
               <thead><tr>
                 <th>Project</th><th>Client</th><th>Portal</th>
-                {isAdmin && <th>PM</th>}
+                {seesAll && <th>PM</th>}
                 <th>Month Gross</th><th>Commission</th><th>Month Achieved</th><th>Difference</th><th>Progress</th>
               </tr></thead>
               <tbody>
@@ -243,7 +243,7 @@ export default function Reports({ projects, profiles = [] }) {
                         <span className="tag">{pd.portal}</span>
                         {hasC && <span className="badge badge-yellow" style={{fontSize:10,marginLeft:4}}>-20%</span>}
                       </td>
-                      {isAdmin && <td style={{fontSize:12,color:'var(--text3)'}}>{pd.manager_name}</td>}
+                      {seesAll && <td style={{fontSize:12,color:'var(--text3)'}}>{pd.manager_name}</td>}
                       <td className="mono" style={{fontSize:12}}>{fmt(gross)}</td>
                       <td className="mono" style={{fontSize:12,color:hasC?'var(--warning)':'var(--text4)'}}>{hasC?'−'+fmt(gross-net):'—'}</td>
                       <td className="mono" style={{fontSize:12,color:'var(--success)',fontWeight:600}}>{fmt(ach)}</td>
