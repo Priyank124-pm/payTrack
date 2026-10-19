@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const pool    = require('../db/pool');
+const { isScopedCoordinator } = require('../services/access');
 const { authenticate, isAdmin, getEffectiveManagerId } = require('../middleware/auth');
 const { logActivity }             = require('../services/logger');
 const { notify, notifyMany, getAdminIds } = require('../services/notifyService');
@@ -25,7 +26,7 @@ router.get('/', async (req, res) => {
     `;
     const params = [];
     const wheres = [];
-    if ((req.user.role === 'coordinator' && !req.user.sees_all)) {
+    if (isScopedCoordinator(req.user)) {
       wheres.push('p.coordinator_id = ?');
       params.push(req.user.id);
     } else if (managerId) {

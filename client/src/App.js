@@ -252,19 +252,21 @@ function ChangePasswordModal({ onClose }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+const hashPage = () => window.location.hash.replace(/^#\/?/, '') || null;
+
 function AppShell() {
   const { user, loading, signOut, isAdmin } = useAuth();
   // Current tab lives in the URL hash (#/tasks) so a refresh or shared link keeps it.
-  const [page,         setPage]         = useState(() => window.location.hash.replace(/^#\/?/, '') || null);
+  const [page,         setPage]         = useState(hashPage);
   const [showChangePw, setShowChangePw] = useState(false);
   const [sidebarOpen,  setSidebarOpen]  = useState(false);
 
   const closeSidebar = () => setSidebarOpen(false);
-  const navTo = (id) => { window.location.hash = `/${id}`; setPage(id); closeSidebar(); };
+  const navTo = (id) => { window.location.hash = `/${id}`; closeSidebar(); };
 
   // Back/forward buttons and manual hash edits
   useEffect(() => {
-    const onHash = () => setPage(window.location.hash.replace(/^#\/?/, '') || null);
+    const onHash = () => setPage(hashPage());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);

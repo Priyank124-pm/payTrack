@@ -2,6 +2,8 @@
 // The React proxy (package.json → "proxy") forwards /api/* to http://localhost:4000 in dev.
 // In production set REACT_APP_API_URL to your server domain.
 
+import { downloadBlob } from './utils/download';
+
 const BASE = process.env.REACT_APP_API_URL || '';
 
 const getToken = () => localStorage.getItem('nexportal_token');
@@ -195,9 +197,6 @@ export const boardsAPI = {
   download: async (aid, fileName) => {
     const res = await fetch(`${BASE}/api/boards/attachments/${aid}/download`, { headers: authHeader() });
     if (!res.ok) throw new Error('Download failed');
-    const url = URL.createObjectURL(await res.blob());
-    const a = Object.assign(document.createElement('a'), { href: url, download: fileName });
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(await res.blob(), fileName);
   },
 };

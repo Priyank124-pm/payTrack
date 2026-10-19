@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { usersAPI } from '../api';
 
 // Pages an admin can switch on/off per user (must match CONFIGURABLE_PAGES on the server)
-export const ACCESS_PAGES = [
+const ACCESS_PAGES = [
   { id:'projects',       label:'Projects' },
   { id:'projections',    label:'Monthly Projections' },
   { id:'projectlookup',  label:'Project Lookup' },

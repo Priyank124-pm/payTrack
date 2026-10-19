@@ -4,7 +4,7 @@
 //
 // A milestone belongs to the value in force at the END of its month: a month that finished before
 // the change date keeps the old value; the month containing the change date (and later) uses the new one.
-const TRACKED = { portal: 'portal', manager_id: 'manager_id', coordinator_id: 'coordinator_id' };
+const TRACKED = ['portal', 'manager_id', 'coordinator_id'];
 
 // SQL expression: value of `field` for project column `projectCol` as of `dateExpr`,
 // falling back to `fallback` (the project's current value) when there is no history.
@@ -25,7 +25,7 @@ const resolvedCols = (m = 'm', p = 'p') => `
 // Record changes made by a project update. `existing` = row before update, `body` = incoming fields.
 async function recordChanges(pool, projectId, existing, body, effectiveFrom, userId) {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom || '') ? effectiveFrom : new Date().toISOString().slice(0, 10);
-  for (const field of Object.keys(TRACKED)) {
+  for (const field of TRACKED) {
     if (body[field] === undefined) continue;
     const oldVal = existing[field] || '';
     const newVal = body[field] || '';
@@ -42,4 +42,4 @@ async function recordChanges(pool, projectId, existing, body, effectiveFrom, use
   }
 }
 
-module.exports = { asOf, MONTH_END, resolvedCols, recordChanges };
+module.exports = { asOf, resolvedCols, recordChanges };

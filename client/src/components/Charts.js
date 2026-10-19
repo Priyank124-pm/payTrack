@@ -4,7 +4,7 @@ import { fmt } from './UI';
 // Categorical slots 1 & 2 from the reference palette (validated adjacent pair).
 export const SERIES = { projected: '#2a78d6', received: '#eb6834' };
 // Status colours are reserved for state, never reused as series colours.
-export const STATUS_COLORS = { Paid: '#059669', Partial: '#D97706', Pending: '#94A3B8', Overdue: '#DC2626' };
+const STATUS_COLORS = { Paid: '#059669', Partial: '#D97706', Pending: '#94A3B8', Overdue: '#DC2626' };
 
 const compact = n => {
   const v = Math.abs(n);
@@ -26,7 +26,7 @@ const barPath = (x, y, w, h, r = 4) => {
   return `M${x},${y + h} V${y + r} Q${x},${y} ${x + r},${y} H${x + w - r} Q${x + w},${y} ${x + w},${y + r} V${y + h} Z`;
 };
 
-export const Legend = ({ items }) => (
+const Legend = ({ items }) => (
   <div style={{ display:'flex', gap:16, flexWrap:'wrap', fontSize:12, color:'var(--text2)' }}>
     {items.map(i => (
       <span key={i.label} style={{ display:'inline-flex', alignItems:'center', gap:6 }}>

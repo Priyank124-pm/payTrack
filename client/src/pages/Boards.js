@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Modal, Icon, Avatar, Spinner, EmptyState } from '../components/UI';
+import { Modal, Icon, Avatar, Spinner, EmptyState, pct, todayStr } from '../components/UI';
 import { useAuth } from '../context/AuthContext';
 import { boardsAPI } from '../api';
 
@@ -7,7 +7,6 @@ const day = d => (d ? String(d).slice(0, 10) : '');
 const fmtDate = d => (d ? new Date(day(d) + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' }) : null);
 const fmtSize = n => (n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
 const fmtTime = t => new Date(t).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
-const todayISO = () => new Date().toISOString().slice(0, 10);
 
 // ── Board create / edit ─────────────────────────────────────────
 function BoardModal({ board, profiles, onClose, onSaved }) {
@@ -240,7 +239,7 @@ function BoardView({ boardId, isAdmin, me, onBack, onEdit }) {
     try { await boardsAPI.removeColumn(c.id); load(); } catch (e) { alert(e.message); }
   };
 
-  const today = todayISO();
+  const today = todayStr();
 
   return (
     <div>
@@ -374,7 +373,7 @@ export default function Boards({ profiles }) {
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px, 1fr))', gap:14 }}>
         {(boards || []).map(b => {
-          const pct = b.task_count ? Math.round((b.done_count / b.task_count) * 100) : 0;
+          const progress = pct(b.done_count, b.task_count);
           return (
             <div key={b.id} className="card" style={{ padding:16, cursor:'pointer' }} onClick={() => setOpenId(b.id)}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
@@ -383,7 +382,7 @@ export default function Boards({ profiles }) {
               </div>
               {b.description && <div className="text-muted" style={{ fontSize:12, margin:'4px 0 8px' }}>{b.description}</div>}
               <div style={{ height:6, background:'var(--surface2)', borderRadius:4, overflow:'hidden', margin:'10px 0 4px' }}>
-                <div style={{ width:`${pct}%`, height:'100%', background:'var(--success)' }} />
+                <div style={{ width:`${progress}%`, height:'100%', background:'var(--success)' }} />
               </div>
               <div style={{ fontSize:11, color:'var(--text3)', marginBottom:10 }}>{b.done_count}/{b.task_count} tasks done</div>
               <div style={{ display:'flex' }}>

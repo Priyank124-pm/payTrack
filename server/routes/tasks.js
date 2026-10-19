@@ -3,11 +3,11 @@ const pool    = require('../db/pool');
 const { authenticate } = require('../middleware/auth');
 const { logActivity }  = require('../services/logger');
 const { notify }       = require('../services/notifyService');
+const { ADMIN_ROLES }  = require('../services/access');
 
 const router = express.Router();
 router.use(authenticate);
 
-const ADMIN_ROLES = ['super_admin', 'sub_admin'];
 const isAdmin = u => ADMIN_ROLES.includes(u.role);
 const isPM    = u => u.role === 'project_manager';
 

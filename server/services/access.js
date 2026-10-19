@@ -24,14 +24,22 @@ function effectivePages(user) {
   return stored === null ? [...CONFIGURABLE_PAGES] : stored;
 }
 
-const hasPage = (user, page) => effectivePages(user).includes(page);
-
-// Express guard
+// Express guard — `req.user.pages` is resolved once in authenticate()
 const requirePage = (page) => (req, res, next) =>
-  hasPage(req.user, page) ? next() : res.status(403).json({ error: 'You do not have access to this section' });
+  req.user.pages.includes(page) ? next() : res.status(403).json({ error: 'You do not have access to this section' });
 
 // Data visibility: 'all' = every user's records, 'own' = only their own.
 // NULL (never configured) keeps the role default: admins see all, everyone else sees their own.
 const seesAll = (user) => user.data_scope === 'all' || (!user.data_scope && ADMIN_ROLES.includes(user.role));
 
-module.exports = { seesAll, ADMIN_ROLES, CONFIGURABLE_PAGES, parsePermissions, effectivePages, hasPage, requirePage };
+// A coordinator without "all data" access only sees projects assigned to them.
+const isScopedCoordinator = (user) => user.role === 'coordinator' && !seesAll(user);
+
+// Public shape of a user row: derived access fields attached, raw permissions dropped.
+// Used by both authenticate() and login so the two can't drift.
+function withAccess(row) {
+  const { permissions, ...user } = row;
+  return { ...user, pages: effectivePages(row), sees_all: seesAll(row) };
+}
+
+module.exports = { ADMIN_ROLES, CONFIGURABLE_PAGES, parsePermissions, seesAll, isScopedCoordinator, withAccess, requirePage };

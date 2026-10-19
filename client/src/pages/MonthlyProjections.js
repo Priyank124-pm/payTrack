@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Icon, Avatar, fmt, pct, ProgressBar, EmptyState, Spinner, StatusBadge, MONTHS, YEARS, CURRENT_MONTH, CURRENT_YEAR, todayStr } from '../components/UI';
 import { COMMISSION_PORTALS, PORTALS, calcNet } from '../hooks/useData';
 import { milestonesAPI } from '../api';
+import { downloadCSV } from '../utils/download';
 import { useAuth } from '../context/AuthContext';
 
 // ── KEY FIX: MilestoneFields is declared OUTSIDE MonthlyProjections.
@@ -557,11 +558,7 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
               netAmt.toFixed(2), netAch.toFixed(2), (netAmt-netAch).toFixed(2), m.status,
             ]);
           });
-          const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
-          const blob = new Blob([csv], { type:'text/csv' });
-          const url  = URL.createObjectURL(blob);
-          const a = document.createElement('a'); a.href=url; a.download='pending_payments.csv'; a.click();
-          URL.revokeObjectURL(url);
+          downloadCSV(rows, 'pending_payments.csv');
         };
 
         const hasFilters = pendPortal !== 'all' || pendPM !== 'all';
