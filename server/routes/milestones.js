@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, query, validationResult } = require('express-validator');
 const pool    = require('../db/pool');
+const { isScopedCoordinator } = require('../services/access');
 const { authenticate, getEffectiveManagerId } = require('../middleware/auth');
 const { resolvedCols } = require('../services/history');
 const { logActivity } = require('../services/logger');
@@ -12,7 +13,7 @@ router.use(authenticate);
 async function canAccessProject(user, projectId) {
   const [rows] = await pool.query('SELECT manager_id, coordinator_id FROM projects WHERE id = ?', [projectId]);
   if (!rows.length) return false;
-  if (user.role === 'coordinator' && !user.sees_all) {
+  if (isScopedCoordinator(user)) {
     // Allow if explicitly assigned as coordinator OR if project belongs to their PM
     return rows[0].coordinator_id === user.id || rows[0].manager_id === user.manager_id;
   }
@@ -32,7 +33,7 @@ router.get('/', async (req, res) => {
     const params = [];
     const wheres = [];
 
-    if (req.user.role === 'coordinator' && !req.user.sees_all) {
+    if (isScopedCoordinator(req.user)) {
       // Show milestones for assigned projects OR all projects under their PM
       wheres.push('(p.coordinator_id = ? OR p.manager_id = ?)');
       params.push(req.user.id, req.user.manager_id);

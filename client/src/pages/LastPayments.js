@@ -18,7 +18,7 @@ function ageBadge(days) {
 }
 
 export default function LastPayments({ projects, milestones, profiles }) {
-  const { isAdmin, seesAll, effectiveManagerId } = useAuth();
+  const { seesAll, effectiveManagerId } = useAuth();
   const [filterPM,    setFilterPM]    = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 

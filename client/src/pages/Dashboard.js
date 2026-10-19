@@ -30,24 +30,24 @@ export default function Dashboard({ projects, milestones, profiles = [] }) {
       })
     : baseProjects;
   // Finance follows the PM / PC / portal in force for each milestone's month (history-aware)
-  const baseIds = new Set(baseProjects.map(p => p.id));
+  const projById = new Map(baseProjects.map(p => [p.id, p]));
   const myMilestones = milestones.filter(m => {
-    if (!baseIds.has(m.project_id)) return false;
-    const pr = baseProjects.find(p => p.id === m.project_id);
+    const pr = projById.get(m.project_id);
+    if (!pr) return false;
     if (filterPM    !== 'all' && (m.pm_id || pr?.manager_id)    !== filterPM)    return false;
     if (filterCoord !== 'all' && (m.pc_id || pr?.coordinator_id) !== filterCoord) return false;
     return true;
   });
-  const portalFor = m => m.portal || myProjects.find(p => p.id === m.project_id)?.portal || baseProjects.find(p => p.id === m.project_id)?.portal;
+  const portalFor = m => m.portal || projById.get(m.project_id)?.portal;
+  const netAmount   = m => calcNet(parseFloat(m.amount)   || 0, portalFor(m));
+  const netAchieved = m => calcNet(parseFloat(m.achieved) || 0, portalFor(m));
 
   const totalNetTarget  = myProjects.reduce((s,p) => s + calcNet(parseFloat(p.target_payment)||0, p.portal), 0);
-  const totalNetAchieved = myMilestones.reduce((s,m) => {
-    return s + calcNet(parseFloat(m.achieved)||0, portalFor(m));
-  }, 0);
+  const totalNetAchieved = myMilestones.reduce((s,m) => s + netAchieved(m), 0);
 
   const curMs = myMilestones.filter(m => m.month === CURRENT_MONTH && m.year === CURRENT_YEAR);
-  const curTarget   = curMs.reduce((s,m) => { return s+calcNet(parseFloat(m.amount)||0,portalFor(m)); }, 0);
-  const curAchieved = curMs.reduce((s,m) => { return s+calcNet(parseFloat(m.achieved)||0,portalFor(m)); }, 0);
+  const curTarget   = curMs.reduce((s,m) => s + netAmount(m), 0);
+  const curAchieved = curMs.reduce((s,m) => s + netAchieved(m), 0);
 
   const active    = myProjects.filter(p => !p.all_payments_received);
   const completed = myProjects.filter(p =>  p.all_payments_received);
@@ -62,14 +62,8 @@ export default function Dashboard({ projects, milestones, profiles = [] }) {
 
   // ── Chart data (net of portal fees, current year) ──
   const yearMs   = myMilestones.filter(m => m.year === CURRENT_YEAR);
-  const monthly  = MONTHS.map(mo => {
-    const ms = yearMs.filter(m => m.month === mo.val);
-    return {
-      label: mo.label,
-      a: ms.reduce((t, m) => t + calcNet(parseFloat(m.amount)   || 0, portalFor(m)), 0),
-      b: ms.reduce((t, m) => t + calcNet(parseFloat(m.achieved) || 0, portalFor(m)), 0),
-    };
-  });
+  const monthly  = MONTHS.map(mo => ({ label: mo.label, a: 0, b: 0 }));
+  yearMs.forEach(m => { monthly[m.month - 1].a += netAmount(m); monthly[m.month - 1].b += netAchieved(m); });
   const portalRows = Object.values(yearMs.reduce((acc, m) => {
     const key = portalFor(m) || 'Direct';
     const o = acc[key] || (acc[key] = { label: key, projected: 0, received: 0 });
