@@ -107,6 +107,7 @@ router.patch('/:id',
 
     const { name, role, manager_id, is_active, permissions, data_scope } = req.body;
     const fields = [], values = [];
+    const active = is_active === undefined ? undefined : [true, 'true', 1].includes(is_active);
 
     // Access changes (enable/disable, page permissions)
     if (is_active !== undefined || permissions !== undefined || data_scope !== undefined) {
@@ -118,11 +119,11 @@ router.patch('/:id',
           return res.status(403).json({ error: 'Only Super Admin can change a Sub Admin\'s access' });
         }
       } catch { return res.status(500).json({ error: 'Server error' }); }
-      if (req.params.id === req.user.id && is_active !== undefined && !(is_active === true || is_active === 'true' || is_active === 1)) {
+      if (req.params.id === req.user.id && active === false) {
         return res.status(400).json({ error: 'You cannot disable your own account' });
       }
     }
-    if (is_active !== undefined)  { fields.push('is_active = ?');   values.push(is_active === true || is_active === 'true' || is_active === 1 ? 1 : 0); }
+    if (active !== undefined)     { fields.push('is_active = ?');   values.push(active ? 1 : 0); }
     if (data_scope !== undefined)  { fields.push('data_scope = ?');  values.push(data_scope || null); }
     if (permissions !== undefined) {
       fields.push('permissions = ?');
@@ -140,11 +141,9 @@ router.patch('/:id',
         [req.params.id]
       );
       if (!rows.length) return res.status(404).json({ error: 'User not found' });
-      const detail = is_active !== undefined
-        ? `${rows[0].is_active ? 'Enabled' : 'Disabled'} user '${rows[0].name}'`
-        : permissions !== undefined
-          ? `Updated page access for '${rows[0].name}'`
-          : `Updated user '${rows[0].name}'`;
+      let detail = `Updated user '${rows[0].name}'`;
+      if (permissions !== undefined || data_scope !== undefined) detail = `Updated access for '${rows[0].name}'`;
+      if (active !== undefined) detail = `${rows[0].is_active ? 'Enabled' : 'Disabled'} user '${rows[0].name}'`;
       await logActivity({ user: req.user, action: 'update', entity: 'user', entityId: req.params.id, detail });
       res.json({ ...rows[0], permissions: parsePermissions(rows[0].permissions) });
     } catch (err) {

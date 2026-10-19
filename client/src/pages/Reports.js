@@ -14,7 +14,7 @@ function toCSV(rows) {
 }
 
 export default function Reports({ projects, profiles = [] }) {
-  const { isAdmin, seesAll, effectiveManagerId } = useAuth();
+  const { seesAll, effectiveManagerId } = useAuth();
   const [month,       setMonth]       = useState(CURRENT_MONTH);
   const [year,        setYear]        = useState(CURRENT_YEAR);
   const [filterPM,    setFilterPM]    = useState('all');

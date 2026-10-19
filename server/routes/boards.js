@@ -4,10 +4,10 @@ const fs      = require('fs');
 const crypto  = require('crypto');
 const multer  = require('multer');
 const pool    = require('../db/pool');
-const { authenticate } = require('../middleware/auth');
-const { requirePage }  = require('../services/access');
+const { authenticate, isAdmin: adminOnly } = require('../middleware/auth');
+const { requirePage, ADMIN_ROLES } = require('../services/access');
 const { logActivity }  = require('../services/logger');
-const { notify }       = require('../services/notifyService');
+const { notify, notifyMany } = require('../services/notifyService');
 
 const router = express.Router();
 router.use(authenticate, requirePage('boards'));
@@ -24,9 +24,7 @@ const upload = multer({
 });
 
 const DEFAULT_COLUMNS = ['To Do', 'In Progress', 'Review', 'Done'];
-const isAdmin = u => u.role === 'super_admin' || u.role === 'sub_admin';
-const adminOnly = (req, res, next) =>
-  isAdmin(req.user) ? next() : res.status(403).json({ error: 'Only admins can do this' });
+const isAdmin = u => ADMIN_ROLES.includes(u.role);
 const dateOrNull = v => (v ? String(v).slice(0, 10) : null);
 const fail = (res, err) => { console.error(err); res.status(500).json({ error: 'Server error' }); };
 
@@ -64,17 +62,23 @@ async function taskWithMeta(id) {
 // ── GET /api/boards ──────────────────────────────────────────────
 router.get('/', async (req, res) => {
   try {
-    const where  = req.user.sees_all ? '' : 'WHERE b.id IN (SELECT board_id FROM board_members WHERE user_id = ?)';
-    const params = req.user.sees_all ? [] : [req.user.id];
+    const scoped = !req.user.sees_all;
+    const where  = scoped ? 'WHERE b.id IN (SELECT board_id FROM board_members WHERE user_id = ?)' : '';
+    const params = scoped ? [req.user.id] : [];
     const [boards] = await pool.query(
       `SELECT b.*,
               (SELECT COUNT(*) FROM board_tasks t WHERE t.board_id = b.id) AS task_count,
               (SELECT COUNT(*) FROM board_tasks t JOIN board_columns c ON c.id = t.column_id
                  WHERE t.board_id = b.id AND c.position = (SELECT MAX(position) FROM board_columns WHERE board_id = b.id)) AS done_count
        FROM boards b ${where} ORDER BY b.created_at DESC`, params);
-    const [members] = await pool.query(
-      `SELECT bm.board_id, u.id, u.name FROM board_members bm JOIN users u ON u.id = bm.user_id`);
-    res.json(boards.map(b => ({ ...b, members: members.filter(m => m.board_id === b.id).map(({ id, name }) => ({ id, name })) })));
+    const byBoard = new Map(boards.map(b => [b.id, []]));
+    if (boards.length) {
+      const [members] = await pool.query(
+        `SELECT bm.board_id, u.id, u.name FROM board_members bm JOIN users u ON u.id = bm.user_id WHERE bm.board_id IN (?)`,
+        [boards.map(b => b.id)]);
+      members.forEach(m => byBoard.get(m.board_id).push({ id: m.id, name: m.name }));
+    }
+    res.json(boards.map(b => ({ ...b, members: byBoard.get(b.id) })));
   } catch (err) { fail(res, err); }
 });
 
@@ -90,9 +94,8 @@ router.post('/', adminOnly, async (req, res) => {
       [DEFAULT_COLUMNS.map((n, i) => [crypto.randomUUID(), id, n, i])]);
     await setMembers(id, member_ids);
     await logActivity({ user: req.user, action: 'create', entity: 'board', entityId: id, detail: `Created board '${name.trim()}'` });
-    for (const uid of member_ids || []) {
-      if (uid !== req.user.id) await notify(uid, { type: 'board_assigned', entityType: 'board', entityId: id, title: 'You were added to a board', body: `Board "${name.trim()}"` });
-    }
+    await notifyMany((member_ids || []).filter(uid => uid !== req.user.id),
+      { type: 'board_assigned', entityType: 'board', entityId: id, title: 'You were added to a board', body: `Board "${name.trim()}"` });
     res.status(201).json({ id });
   } catch (err) { fail(res, err); }
 });
@@ -110,9 +113,8 @@ router.patch('/:id', adminOnly, async (req, res) => {
       const [old] = await pool.query('SELECT user_id FROM board_members WHERE board_id = ?', [req.params.id]);
       await setMembers(req.params.id, member_ids);
       const had = new Set(old.map(o => o.user_id));
-      for (const uid of member_ids) {
-        if (!had.has(uid) && uid !== req.user.id) await notify(uid, { type: 'board_assigned', entityType: 'board', entityId: req.params.id, title: 'You were added to a board', body: `Board "${b[0].name}"` });
-      }
+      await notifyMany(member_ids.filter(uid => !had.has(uid) && uid !== req.user.id),
+        { type: 'board_assigned', entityType: 'board', entityId: req.params.id, title: 'You were added to a board', body: `Board "${b[0].name}"` });
       // Tasks assigned to someone who is no longer a member become unassigned
       const keep = member_ids.length ? member_ids : [''];
       await pool.query(`UPDATE board_tasks SET assigned_to = NULL WHERE board_id = ? AND assigned_to IS NOT NULL AND assigned_to NOT IN (${keep.map(() => '?').join(',')})`, [req.params.id, ...keep]);
@@ -139,18 +141,20 @@ router.delete('/:id', adminOnly, async (req, res) => {
 // ── GET /api/boards/:id  (board + columns + tasks) ───────────────
 router.get('/:id', async (req, res) => {
   try {
-    const [b] = await pool.query('SELECT * FROM boards WHERE id = ?', [req.params.id]);
+    const id = req.params.id;
+    const [[b], allowed] = await Promise.all([pool.query('SELECT * FROM boards WHERE id = ?', [id]), isMember(req.user, id)]);
     if (!b.length) return res.status(404).json({ error: 'Board not found' });
-    if (!(await isMember(req.user, req.params.id))) return res.status(403).json({ error: 'Access denied' });
-    const [columns] = await pool.query('SELECT * FROM board_columns WHERE board_id = ? ORDER BY position', [req.params.id]);
-    const [members] = await pool.query(
-      `SELECT u.id, u.name, u.role FROM board_members bm JOIN users u ON u.id = bm.user_id WHERE bm.board_id = ? ORDER BY u.name`, [req.params.id]);
-    const [tasks] = await pool.query(
-      `SELECT t.*, u.name AS assigned_to_name,
-              (SELECT COUNT(*) FROM board_task_comments c WHERE c.task_id = t.id)    AS comment_count,
-              (SELECT COUNT(*) FROM board_task_attachments a WHERE a.task_id = t.id) AS attachment_count
-       FROM board_tasks t LEFT JOIN users u ON u.id = t.assigned_to
-       WHERE t.board_id = ? ORDER BY t.position, t.created_at`, [req.params.id]);
+    if (!allowed) return res.status(403).json({ error: 'Access denied' });
+    const [[columns], [members], [tasks]] = await Promise.all([
+      pool.query('SELECT * FROM board_columns WHERE board_id = ? ORDER BY position', [id]),
+      pool.query(`SELECT u.id, u.name, u.role FROM board_members bm JOIN users u ON u.id = bm.user_id WHERE bm.board_id = ? ORDER BY u.name`, [id]),
+      pool.query(
+        `SELECT t.*, u.name AS assigned_to_name,
+                (SELECT COUNT(*) FROM board_task_comments c WHERE c.task_id = t.id)    AS comment_count,
+                (SELECT COUNT(*) FROM board_task_attachments a WHERE a.task_id = t.id) AS attachment_count
+         FROM board_tasks t LEFT JOIN users u ON u.id = t.assigned_to
+         WHERE t.board_id = ? ORDER BY t.position, t.created_at`, [id]),
+    ]);
     res.json({ board: b[0], columns, members, tasks });
   } catch (err) { fail(res, err); }
 });
@@ -247,12 +251,15 @@ router.patch('/tasks/:taskId', async (req, res) => {
     if (column_id !== undefined) {
       const [col] = await pool.query('SELECT id FROM board_columns WHERE id = ? AND board_id = ?', [column_id, task.board_id]);
       if (!col.length) return res.status(400).json({ error: 'Invalid column' });
-      const [others] = await pool.query('SELECT id FROM board_tasks WHERE column_id = ? AND id <> ? ORDER BY position, created_at', [column_id, task.id]);
-      const ids = others.map(o => o.id);
-      const at = Math.min(Math.max(parseInt(position) || ids.length, 0), ids.length);
-      ids.splice(position === undefined ? ids.length : at, 0, task.id);
-      await pool.query('UPDATE board_tasks SET column_id = ? WHERE id = ?', [column_id, task.id]);
-      for (let i = 0; i < ids.length; i++) await pool.query('UPDATE board_tasks SET position = ? WHERE id = ?', [i, ids[i]]);
+      const [others] = await pool.query('SELECT id, position FROM board_tasks WHERE column_id = ? AND id <> ? ORDER BY position, created_at', [column_id, task.id]);
+      const order = others.slice();
+      const at = Math.min(Math.max(parseInt(position) || order.length, 0), order.length);
+      order.splice(position === undefined ? order.length : at, 0, { id: task.id, position: null });
+      // Write only what changed: the moved task, plus neighbours whose index shifted
+      await Promise.all(order.flatMap((t, i) =>
+        t.id === task.id
+          ? [pool.query('UPDATE board_tasks SET column_id = ?, position = ? WHERE id = ?', [column_id, i, t.id])]
+          : t.position !== i ? [pool.query('UPDATE board_tasks SET position = ? WHERE id = ?', [i, t.id])] : []));
     }
 
     if (assigned_to && assigned_to !== task.assigned_to && assigned_to !== req.user.id) {
@@ -320,12 +327,9 @@ router.post('/tasks/:taskId/attachments', async (req, res) => {
     if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File is too large (max 10 MB)' : err.message });
     if (!req.files?.length) return res.status(400).json({ error: 'No file received' });
     try {
-      for (const f of req.files) {
-        await pool.query(
-          `INSERT INTO board_task_attachments (id, task_id, file_name, stored_name, mime_type, size, uploaded_by, uploader_name)
-           VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?)`,
-          [task.id, Buffer.from(f.originalname, 'latin1').toString('utf8').slice(0, 255), f.filename, f.mimetype, f.size, req.user.id, req.user.name]);
-      }
+      await pool.query(
+        `INSERT INTO board_task_attachments (id, task_id, file_name, stored_name, mime_type, size, uploaded_by, uploader_name) VALUES ?`,
+        [req.files.map(f => [crypto.randomUUID(), task.id, Buffer.from(f.originalname, 'latin1').toString('utf8').slice(0, 255), f.filename, f.mimetype, f.size, req.user.id, req.user.name])]);
       const [rows] = await pool.query(
         'SELECT id, task_id, file_name, mime_type, size, uploader_name, created_at FROM board_task_attachments WHERE task_id = ? ORDER BY created_at', [task.id]);
       res.status(201).json(rows);

@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { Icon, Avatar, fmt, EmptyState, MONTHS, YEARS, CURRENT_MONTH, CURRENT_YEAR } from '../components/UI';
+import { Icon, Avatar, fmt, pct, EmptyState, MONTHS, YEARS, CURRENT_MONTH, CURRENT_YEAR } from '../components/UI';
 import { calcNet, COMMISSION_PORTALS, PORTALS } from '../hooks/useData';
 import { useAuth } from '../context/AuthContext';
+import { downloadCSV } from '../utils/download';
 
 export default function PortalPayments({ projects, milestones, profiles }) {
   const { seesAll } = useAuth();
@@ -55,10 +56,7 @@ export default function PortalPayments({ projects, milestones, profiles }) {
       lines.push([r.portal, pr.name, pr.client, pm?.name || '', projected.toFixed(2), projectedNet.toFixed(2), received.toFixed(2), receivedNet.toFixed(2)]);
     }));
     lines.push(['TOTAL', '', '', '', totals.projected.toFixed(2), totals.projectedNet.toFixed(2), totals.received.toFixed(2), totals.receivedNet.toFixed(2)]);
-    const csv = lines.map(l => l.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    Object.assign(document.createElement('a'), { href: url, download: `portal-projections-${periodLabel.replace(' ', '-')}.csv` }).click();
-    URL.revokeObjectURL(url);
+    downloadCSV(lines, `portal-projections-${periodLabel.replace(' ', '-')}.csv`);
   };
 
   const num = { textAlign: 'right' };
@@ -138,7 +136,7 @@ export default function PortalPayments({ projects, milestones, profiles }) {
               <div style={{ display:'flex', gap:18, fontSize:12 }}>
                 <span>Projected <strong className="mono">{fmt(r.projected)}</strong></span>
                 <span>Received <strong className="mono" style={{ color:'var(--success)' }}>{fmt(r.received)}</strong></span>
-                <span className="text-muted">{totals.projected ? Math.round((r.projected / totals.projected) * 100) : 0}% of total</span>
+                <span className="text-muted">{pct(r.projected, totals.projected)}% of total</span>
               </div>
             </div>
             <div className="table-wrap"><table>
