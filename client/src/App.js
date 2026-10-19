@@ -291,7 +291,7 @@ function AppShell() {
   // per-user page access an admin configures in User Management.
   const allowed = new Set(user.pages || []);
   const nav = [
-    { id: 'dashboard',      icon: 'dashboard',  label: 'Dashboard' },
+    ...(isAdmin ? [{ id: 'dashboard', icon: 'dashboard', label: 'Dashboard' }] : []),
     ...(isAdmin ? [{ id: 'users', icon: 'users', label: 'User Management' }] : []),
     { id: 'projects',       icon: 'projects',   label: 'Projects' },
     { id: 'projections',    icon: 'projection', label: 'Monthly Projections' },
@@ -306,7 +306,7 @@ function AppShell() {
   ].filter(n => n.id === 'dashboard' || n.id === 'users' || n.id === 'activitylogs' || allowed.has(n.id));
 
   // Fall back to the first page this user may open
-  const activePage = nav.some(n => n.id === page) ? page : 'dashboard';
+  const activePage = nav.some(n => n.id === page) ? page : (isAdmin ? 'dashboard' : nav[0]?.id);
 
   const titles = {
     dashboard: 'Dashboard', users: 'User Management',
@@ -322,7 +322,7 @@ function AppShell() {
 
   const renderPage = () => {
     switch (activePage) {
-      case 'dashboard':   return <Dashboard projects={projects} milestones={milestones} profiles={profiles} />;
+      case 'dashboard':   return isAdmin ? <Dashboard projects={projects} milestones={milestones} profiles={profiles} /> : null;
       case 'users':       return isAdmin ? <UserManagement profiles={profiles} onAdd={createProfile} onUpdate={updateProfile} onDelete={deleteProfile} /> : null;
       case 'projects':    return (
         <Projects

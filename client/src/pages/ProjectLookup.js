@@ -33,8 +33,8 @@ export default function ProjectLookup() {
       .catch(() => setPickedRows([]));
   }, [picked, month, year]);
 
-  const pickedNetT = pickedRows.reduce((s, m) => s + calcNet(parseFloat(m.amount)  || 0, picked?.portal), 0);
-  const pickedNetA = pickedRows.reduce((s, m) => s + calcNet(parseFloat(m.achieved) || 0, picked?.portal), 0);
+  const pickedNetT = pickedRows.reduce((s, m) => s + calcNet(parseFloat(m.amount)  || 0, m.portal || picked?.portal), 0);
+  const pickedNetA = pickedRows.reduce((s, m) => s + calcNet(parseFloat(m.achieved) || 0, m.portal || picked?.portal), 0);
 
   const clear = () => { setPicked(null); setQuery(''); setSearchResults([]); };
 
@@ -162,7 +162,7 @@ export default function ProjectLookup() {
                   No milestones for {MONTHS[month - 1]?.label} {year}.
                 </div>
               : pickedRows.map(m => {
-                const net = calcNet(parseFloat(m.amount) || 0, picked.portal);
+                const net = calcNet(parseFloat(m.amount) || 0, m.portal || picked.portal);
                 const td  = m.target_date ? String(m.target_date).slice(0, 10) : null;
                 return (
                   <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '10px 0', borderBottom: '1px solid var(--border1)' }}>

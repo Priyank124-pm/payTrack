@@ -131,8 +131,9 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
 
   const visProjects = projects.filter(pr => {
     if (!seesAll && pr.manager_id !== effectiveManagerId) return false;
-    if (filterPM !== 'all' && pr.manager_id !== filterPM) return false;
-    if (filterCoord !== 'all' && pr.coordinator_id !== filterCoord) return false;
+    const monthMs = milestones.filter(m => m.project_id === pr.id && m.month === month && m.year === year);
+    if (filterPM !== 'all' && !(monthMs.length ? monthMs.some(m => m.pm_id === filterPM) : pr.manager_id === filterPM)) return false;
+    if (filterCoord !== 'all' && !(monthMs.length ? monthMs.some(m => m.pc_id === filterCoord) : pr.coordinator_id === filterCoord)) return false;
     if (isCurrentMonth && pr.all_payments_received) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -143,14 +144,15 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
 
   const projRows = visProjects.map(pr => ({
     ...pr,
-    rows: milestones.filter(m => m.project_id === pr.id && m.month === month && m.year === year),
+    rows: milestones.filter(m => m.project_id === pr.id && m.month === month && m.year === year
+      && (filterPM === 'all' || m.pm_id === filterPM) && (filterCoord === 'all' || m.pc_id === filterCoord)),
   }));
 
   const allRows   = projRows.flatMap(p => p.rows);
   const gGross    = allRows.reduce((s, m) => s + (parseFloat(m.amount) || 0), 0);
-  const gNet      = allRows.reduce((s, m) => { const pr = projects.find(p => p.id === m.project_id); return s + calcNet(parseFloat(m.amount) || 0, pr?.portal); }, 0);
+  const gNet      = allRows.reduce((s, m) => { const pr = projects.find(p => p.id === m.project_id); return s + calcNet(parseFloat(m.amount) || 0, m.portal || pr?.portal); }, 0);
   const gGrossAchieved = allRows.reduce((s, m) => s + (parseFloat(m.achieved) || 0), 0);
-  const gAchieved      = allRows.reduce((s, m) => { const pr = projects.find(p => p.id === m.project_id); return s + calcNet(parseFloat(m.achieved) || 0, pr?.portal); }, 0);
+  const gAchieved      = allRows.reduce((s, m) => { const pr = projects.find(p => p.id === m.project_id); return s + calcNet(parseFloat(m.achieved) || 0, m.portal || pr?.portal); }, 0);
 
   // ── Pending Payments tab data ───────────────────────────────────
   const myProjectIds = new Set(visProjects.map(p => p.id).concat(
@@ -160,8 +162,8 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
     if (!myProjectIds.has(m.project_id)) return false;
     if (m.status === 'Paid') return false;
     const pr = projects.find(p => p.id === m.project_id);
-    if (pendPortal !== 'all' && pr?.portal !== pendPortal) return false;
-    if (pendPM     !== 'all' && pr?.manager_id !== pendPM) return false;
+    if (pendPortal !== 'all' && (m.portal || pr?.portal) !== pendPortal) return false;
+    if (pendPM     !== 'all' && (m.pm_id || pr?.manager_id) !== pendPM) return false;
     return true;
   });
   // Group pending milestones by year+month, newest first
@@ -343,8 +345,8 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
         const pmP       = pms.find(u => u.id === pr.manager_id);
         const hasC      = COMMISSION_PORTALS.includes(pr.portal);
         const gT        = pr.rows.reduce((s, m) => s + (parseFloat(m.amount) || 0), 0);
-        const netT      = pr.rows.reduce((s, m) => s + calcNet(parseFloat(m.amount) || 0, pr.portal), 0);
-        const netA      = pr.rows.reduce((s, m) => s + calcNet(parseFloat(m.achieved) || 0, pr.portal), 0);
+        const netT      = pr.rows.reduce((s, m) => s + calcNet(parseFloat(m.amount) || 0, m.portal || pr.portal), 0);
+        const netA      = pr.rows.reduce((s, m) => s + calcNet(parseFloat(m.achieved) || 0, m.portal || pr.portal), 0);
         const comm      = gT - netT;
         const p         = pct(netA, netT);
         const isAddHere = addingTo === pr.id;
@@ -405,15 +407,15 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
 
               {pr.rows.map(m => {
                 const gross  = parseFloat(m.amount) || 0;
-                const net    = calcNet(gross, pr.portal);
-                const netAch = calcNet(parseFloat(m.achieved) || 0, pr.portal);
+                const net    = calcNet(gross, m.portal || pr.portal);
+                const netAch = calcNet(parseFloat(m.achieved) || 0, m.portal || pr.portal);
                 return (
                   <div className={`m-row${editId === m.id ? ' editing' : ''}`} key={m.id}>
                     {editId === m.id ? (
                       <MilestoneFields
                         vals={editBuf}
                         onChange={setB}
-                        portal={pr.portal}
+                        portal={m.portal || pr.portal}
                         onSave={saveEdit}
                         onCancel={cancelEdit}
                         saving={saving}
@@ -536,20 +538,20 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
       {/* ── Pending Payments Tab ─────────────────────────────────── */}
       {activeTab === 'pending' && (() => {
         // Grand totals across all filtered pending milestones
-        const totalTarget   = pendingMs.reduce((s,m) => { const pr = projects.find(p=>p.id===m.project_id); return s + calcNet(parseFloat(m.amount)||0, pr?.portal); }, 0);
-        const totalAchieved = pendingMs.reduce((s,m) => { const pr = projects.find(p=>p.id===m.project_id); return s + calcNet(parseFloat(m.achieved)||0, pr?.portal); }, 0);
+        const totalTarget   = pendingMs.reduce((s,m) => { const pr = projects.find(p=>p.id===m.project_id); return s + calcNet(parseFloat(m.amount)||0, m.portal || pr?.portal); }, 0);
+        const totalAchieved = pendingMs.reduce((s,m) => { const pr = projects.find(p=>p.id===m.project_id); return s + calcNet(parseFloat(m.achieved)||0, m.portal || pr?.portal); }, 0);
         const totalPending  = totalTarget - totalAchieved;
 
         const exportCSV = () => {
           const rows = [['Month','Year','Project','Client','Portal','PM','Milestone','Target Date','Net Target','Net Received','Remaining','Status']];
           pendingMs.forEach(m => {
             const pr     = projects.find(p=>p.id===m.project_id);
-            const pmUser = profiles.find(u=>u.id===pr?.manager_id);
-            const netAmt = calcNet(parseFloat(m.amount)||0, pr?.portal);
-            const netAch = calcNet(parseFloat(m.achieved)||0, pr?.portal);
+            const pmUser = profiles.find(u=>u.id===(m.pm_id||pr?.manager_id));
+            const netAmt = calcNet(parseFloat(m.amount)||0, m.portal || pr?.portal);
+            const netAch = calcNet(parseFloat(m.achieved)||0, m.portal || pr?.portal);
             rows.push([
               MONTHS[m.month-1]?.label, m.year,
-              pr?.name||'', pr?.client||'', pr?.portal||'',
+              pr?.name||'', pr?.client||'', m.portal||pr?.portal||'',
               pmUser?.name||'',
               m.label, m.target_date||'',
               netAmt.toFixed(2), netAch.toFixed(2), (netAmt-netAch).toFixed(2), m.status,
@@ -640,8 +642,8 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
             )}
 
             {pendingByMonth.map(group => {
-              const groupTarget   = group.items.reduce((s,m) => { const pr = projects.find(p=>p.id===m.project_id); return s + calcNet(parseFloat(m.amount)||0, pr?.portal); }, 0);
-              const groupAchieved = group.items.reduce((s,m) => { const pr = projects.find(p=>p.id===m.project_id); return s + calcNet(parseFloat(m.achieved)||0, pr?.portal); }, 0);
+              const groupTarget   = group.items.reduce((s,m) => { const pr = projects.find(p=>p.id===m.project_id); return s + calcNet(parseFloat(m.amount)||0, m.portal || pr?.portal); }, 0);
+              const groupAchieved = group.items.reduce((s,m) => { const pr = projects.find(p=>p.id===m.project_id); return s + calcNet(parseFloat(m.achieved)||0, m.portal || pr?.portal); }, 0);
               const groupPending  = groupTarget - groupAchieved;
 
               return (
@@ -670,10 +672,10 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
                   <div style={{ padding:'0 18px 10px' }}>
                     {group.items.map(m => {
                       const pr     = projects.find(p => p.id === m.project_id);
-                      const hasC   = COMMISSION_PORTALS.includes(pr?.portal);
-                      const netAmt = calcNet(parseFloat(m.amount)||0, pr?.portal);
-                      const netAch = calcNet(parseFloat(m.achieved)||0, pr?.portal);
-                      const pmUser = profiles.find(u => u.id === pr?.manager_id);
+                      const hasC   = COMMISSION_PORTALS.includes(m.portal || pr?.portal);
+                      const netAmt = calcNet(parseFloat(m.amount)||0, m.portal || pr?.portal);
+                      const netAch = calcNet(parseFloat(m.achieved)||0, m.portal || pr?.portal);
+                      const pmUser = profiles.find(u => u.id === (m.pm_id || pr?.manager_id));
 
                       return (
                         <div key={m.id} className={`m-row${editId === m.id ? ' editing' : ''}`}>
@@ -681,7 +683,7 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
                             <MilestoneFields
                               vals={editBuf}
                               onChange={setB}
-                              portal={pr?.portal}
+                              portal={m.portal || pr?.portal}
                               onSave={saveEdit}
                               onCancel={cancelEdit}
                               saving={saving}
@@ -697,7 +699,7 @@ export default function MonthlyProjections({ projects, milestones, profiles, onA
                                     {isAdmin && pmUser && <span style={{ marginLeft:6 }}>· {pmUser.name}</span>}
                                   </div>
                                   <div style={{ display:'flex', gap:5, marginTop:3, alignItems:'center', flexWrap:'wrap' }}>
-                                    {pr?.portal && <span className="tag" style={{ fontSize:10 }}>{pr.portal}</span>}
+                                    {(m.portal || pr?.portal) && <span className="tag" style={{ fontSize:10 }}>{m.portal || pr.portal}</span>}
                                     {hasC && <span className="badge badge-yellow" style={{ fontSize:10 }}>-20%</span>}
                                     {m.target_date && <span className="mono" style={{ fontSize:10, color:'var(--text4)' }}>{m.target_date}</span>}
                                   </div>

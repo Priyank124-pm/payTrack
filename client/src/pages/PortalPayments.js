@@ -22,8 +22,8 @@ export default function PortalPayments({ projects, milestones, profiles }) {
       if (!pr) return;
       if (m.year !== year) return;
       if (month !== 'all' && m.month !== month) return;
-      if (filterPM !== 'all' && pr.manager_id !== filterPM) return;
-      const key = pr.portal || 'Direct';
+      if (filterPM !== 'all' && (m.pm_id || pr.manager_id) !== filterPM) return;
+      const key = m.portal || pr.portal || 'Direct';
       if (portal !== 'all' && key !== portal) return;
 
       const proj = parseFloat(m.amount) || 0, got = parseFloat(m.achieved) || 0;
@@ -33,7 +33,7 @@ export default function PortalPayments({ projects, milestones, profiles }) {
         o.count += 1;
       };
       const P  = portals[key] || (portals[key] = { portal: key, projected: 0, projectedNet: 0, received: 0, receivedNet: 0, count: 0, projects: {} });
-      const pp = P.projects[pr.id] || (P.projects[pr.id] = { project: pr, projected: 0, projectedNet: 0, received: 0, receivedNet: 0, count: 0 });
+      const pp = P.projects[pr.id] || (P.projects[pr.id] = { project: pr, pmId: m.pm_id || pr.manager_id, projected: 0, projectedNet: 0, received: 0, receivedNet: 0, count: 0 });
       add(P); add(pp);
     });
 
@@ -148,8 +148,8 @@ export default function PortalPayments({ projects, milestones, profiles }) {
                 <th style={num}>Received</th><th style={num}>Received Net</th>
               </tr></thead>
               <tbody>
-                {Object.values(r.projects).sort((a, b) => b.projected - a.projected).map(({ project: pr, projected, projectedNet, received, receivedNet }) => {
-                  const pm = pms.find(u => u.id === pr.manager_id);
+                {Object.values(r.projects).sort((a, b) => b.projected - a.projected).map(({ project: pr, pmId, projected, projectedNet, received, receivedNet }) => {
+                  const pm = pms.find(u => u.id === (pmId || pr.manager_id));
                   return (
                     <tr key={pr.id}>
                       <td style={{ fontWeight:700 }}>{pr.name}</td>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Modal, Icon, Avatar, fmt, pct, ProgressBar, EmptyState, Spinner, ActionsMenu } from '../components/UI';
+import { Modal, Icon, Avatar, fmt, pct, ProgressBar, EmptyState, Spinner, ActionsMenu, todayStr } from '../components/UI';
 import { useAuth } from '../context/AuthContext';
 import { PORTALS, COMMISSION_PORTALS, calcNet } from '../hooks/useData';
 import { projectsAPI } from '../api';
@@ -249,14 +249,21 @@ export default function Projects({
     setForm({ name:'',client:'',type:'Monthly',portal:'Upwork',manager_id:defPM,coordinator_id:'',target_payment:'',status:'active' });
     setError(''); setModal('add');
   };
-  const openEdit = pr => { setForm({...pr, coordinator_id: pr.coordinator_id||''}); setError(''); setModal('edit'); };
+  const [history, setHistory] = useState([]);
+  const openEdit = pr => {
+    setForm({...pr, coordinator_id: pr.coordinator_id||'', _orig:{portal:pr.portal, manager_id:pr.manager_id, coordinator_id:pr.coordinator_id||''}, effective_from: todayStr()});
+    setError(''); setModal('edit'); setHistory([]);
+    projectsAPI.history(pr.id).then(setHistory).catch(()=>{});
+  };
+  // Portal / PM / coordinator changes apply from the chosen date; earlier months keep their old values
+  const assignmentChanged = modal==='edit' && form._orig && ['portal','manager_id','coordinator_id'].some(k => (form[k]||'') !== (form._orig[k]||''));
 
   const save = async () => {
     if (!form.name||!form.client) return setError('Name and client required.');
     setSaving(true); setError('');
     try {
       if (modal==='add') await onAdd({ ...form, status: form.status || 'active' });
-      else await onUpdate(form.id,{name:form.name,client:form.client,type:form.type,portal:form.portal,manager_id:form.manager_id,coordinator_id:form.coordinator_id||null,target_payment:parseFloat(form.target_payment)||0,status:form.status||'active'});
+      else await onUpdate(form.id,{name:form.name,client:form.client,type:form.type,portal:form.portal,manager_id:form.manager_id,coordinator_id:form.coordinator_id||null,target_payment:parseFloat(form.target_payment)||0,status:form.status||'active',...(assignmentChanged?{effective_from:form.effective_from}:{})});
       setModal(null);
     } catch(e){setError(e.message);}
     finally{setSaving(false);}
@@ -393,7 +400,7 @@ export default function Projects({
               {myProjects.map(pr => {
                 const achieved    = getAchieved(pr.id);
                 const netTarget   = calcNet(parseFloat(pr.target_payment)||0, pr.portal);
-                const netAchieved = calcNet(achieved, pr.portal);
+                const netAchieved = milestones.filter(m=>m.project_id===pr.id).reduce((t,m)=>t+calcNet(parseFloat(m.achieved)||0, m.portal||pr.portal),0);
                 const pm          = pms.find(u=>u.id===pr.manager_id);
                 const hasC        = COMMISSION_PORTALS.includes(pr.portal);
                 const p           = pct(netAchieved, netTarget);
@@ -636,6 +643,31 @@ export default function Projects({
               </select>
             </div>
           </div>
+          {assignmentChanged && (
+            <div className="form-group" style={{ background:'var(--warning-lt)', borderRadius:10, padding:'10px 12px', marginTop:4 }}>
+              <label className="form-label">Change effective from</label>
+              <input className="form-control" type="date" value={form.effective_from||''} onChange={e=>setF('effective_from',e.target.value)} />
+              <div className="form-hint">Months that ended before this date keep the previous portal / PM / coordinator. The month containing this date and later months use the new one.</div>
+            </div>
+          )}
+          {modal==='edit' && history.some(h => h.effective_from && String(h.effective_from).slice(0,4) !== '1970') && (
+            <div style={{ marginTop:12 }}>
+              <div className="form-label">Change history</div>
+              {['portal','manager_id','coordinator_id'].map(f => {
+                const rows = history.filter(h => h.field === f);
+                if (!rows.some(h => String(h.effective_from).slice(0,4) !== '1970')) return null;
+                const label = {portal:'Portal', manager_id:'PM', coordinator_id:'Coordinator'}[f];
+                return (
+                  <div key={f} style={{ fontSize:12, color:'var(--text2)', marginBottom:4 }}>
+                    <strong>{label}:</strong>{' '}
+                    {rows.map((h,i) => (
+                      <span key={h.id}>{i>0 && ' → '}{(f==='portal' ? h.value : h.value_name) || 'None'}{String(h.effective_from).slice(0,4)==='1970' ? '' : <span style={{color:'var(--text4)'}}> (from {String(h.effective_from).slice(0,10)})</span>}</span>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           <div className="info-box mt-3" style={{ marginTop:12 }}><Icon name="info" size={13}/>Milestones are managed in <strong>Monthly Projections</strong>.</div>
         </Modal>
       )}
