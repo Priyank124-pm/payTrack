@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../db/pool');
 const stripeService = require('../services/stripeService');
 const invoiceService = require('../services/invoiceService');
+const { findOrCreateLocalInvoice, invoicePaymentIntent, invoiceTax } = require('../services/stripeInvoices');
 const { logActivity } = require('../services/logger');
 const { notify } = require('../services/notifyService');
 
@@ -197,10 +198,10 @@ async function activateSubscription({ deal, project, session }) {
         })),
         stripeInvoiceId: stripeInvoice.id,
         stripeHostedUrl: stripeInvoice.hosted_invoice_url,
-        stripePaymentIntentId: stripeInvoice.payment_intent,
+        stripePaymentIntentId: invoicePaymentIntent(stripeInvoice),
         paid: paidNow,
         currency: stripeInvoice.currency || deal.currency || 'usd',
-        tax: (stripeInvoice.tax || 0) / 100,
+        tax: invoiceTax(stripeInvoice),
       });
     } catch (e) {
       console.error('[Stripe webhook] Failed to record initial invoice:', e.message);
@@ -251,50 +252,13 @@ async function handleSubscriptionUpdated(stripeSub) {
   );
 }
 
-// Every Stripe-generated invoice (first cycle via Checkout, every renewal
-// after) gets mirrored into our own `invoices` table here rather than at
-// creation time, since Stripe generates them on its own schedule now — this
-// is what lets NexPortal keep Invoice History / Server Payments KPIs
-// accurate while only tracking, not driving, the billing itself.
-async function findOrCreateLocalInvoice(stripeInvoice, { paidNow }) {
-  const [[existing]] = await pool.query('SELECT * FROM invoices WHERE stripe_invoice_id = ?', [stripeInvoice.id]);
-  if (existing) return existing;
-  if (!stripeInvoice.subscription) return null; // not tied to one of our subscriptions
-
-  const [[subscription]] = await pool.query(
-    'SELECT * FROM server_subscriptions WHERE stripe_subscription_id = ?', [stripeInvoice.subscription]
-  );
-  if (!subscription) return null;
-
-  const periodStart = new Date((stripeInvoice.period_start || stripeInvoice.created) * 1000).toISOString().split('T')[0];
-  const periodEnd   = new Date((stripeInvoice.period_end   || stripeInvoice.created) * 1000).toISOString().split('T')[0];
-
-  return invoiceService.recordInitialInvoice({
-    subscriptionId: subscription.id, projectId: subscription.project_id,
-    periodStart, periodEnd,
-    subtotal: (stripeInvoice.subtotal || 0) / 100,
-    total: (stripeInvoice.total || 0) / 100,
-    amountPaid: (stripeInvoice.amount_paid || 0) / 100,
-    lineItems: (stripeInvoice.lines?.data || []).map(l => ({
-      description: l.description || 'Server Maintenance',
-      amount: (l.amount || 0) / 100,
-    })),
-    stripeInvoiceId: stripeInvoice.id,
-    stripeHostedUrl: stripeInvoice.hosted_invoice_url,
-    stripePaymentIntentId: stripeInvoice.payment_intent,
-    paid: paidNow,
-    currency: stripeInvoice.currency || subscription.currency || 'usd',
-    tax: (stripeInvoice.tax || 0) / 100,
-  });
-}
-
 async function handleInvoicePaymentSucceeded(stripeInvoice) {
-  const invoice = await findOrCreateLocalInvoice(stripeInvoice, { paidNow: true });
+  const { invoice } = await findOrCreateLocalInvoice(stripeInvoice, { paidNow: true });
   if (!invoice) return;
 
   if (invoice.status !== 'paid') {
     await invoiceService.markInvoicePaid(invoice.id, {
-      stripePaymentIntentId: stripeInvoice.payment_intent || null,
+      stripePaymentIntentId: invoicePaymentIntent(stripeInvoice),
       amountPaid: (stripeInvoice.amount_paid || 0) / 100,
     });
   }
@@ -306,7 +270,7 @@ async function handleInvoicePaymentSucceeded(stripeInvoice) {
 }
 
 async function handleInvoicePaymentFailed(stripeInvoice) {
-  const invoice = await findOrCreateLocalInvoice(stripeInvoice, { paidNow: false });
+  const { invoice } = await findOrCreateLocalInvoice(stripeInvoice, { paidNow: false });
   if (!invoice) return;
 
   await pool.query(`UPDATE invoices SET status = 'overdue' WHERE id = ?`, [invoice.id]);

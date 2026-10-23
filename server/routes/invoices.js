@@ -4,6 +4,7 @@ const { isScopedCoordinator } = require('../services/access');
 const { authenticate, isAdmin, getEffectiveManagerId } = require('../middleware/auth');
 const { logActivity } = require('../services/logger');
 const invoiceService  = require('../services/invoiceService');
+const { syncPaidInvoices } = require('../services/stripeInvoices');
 const { sendMail, invoiceTemplate } = require('../services/emailService');
 
 const router = express.Router();
@@ -15,6 +16,18 @@ function scopeClause(req, managerId, qManagerId) {
   if (qManagerId) return { clause: 'p.manager_id = ?', param: qManagerId };
   return null;
 }
+
+// ── POST /api/invoices/sync-stripe — backfill paid Stripe invoices we missed (admin) ──
+router.post('/sync-stripe', isAdmin, async (req, res) => {
+  try {
+    const summary = await syncPaidInvoices();
+    await logActivity({ user: req.user, action: 'sync', entity: 'invoice', detail: `Stripe sync: ${summary.recorded} recorded, ${summary.markedPaid} marked paid` });
+    res.json(summary);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+});
 
 // ── GET /api/invoices?tab=pending|upcoming|received&month=&year=&managerId= ──
 router.get('/', async (req, res) => {
@@ -49,8 +62,10 @@ router.get('/', async (req, res) => {
     `;
     const params = [...statuses];
     if (scope) { sql += ` AND ${scope.clause}`; params.push(scope.param); }
-    if (month && year) { sql += ' AND MONTH(i.due_date) = ? AND YEAR(i.due_date) = ?'; params.push(month, year); }
-    sql += ' ORDER BY i.due_date ASC';
+    // Received = when the money arrived (matches the "Received This Month" KPI); pending/overdue = when it's due
+    const dateCol = tab === 'received' ? 'i.paid_at' : 'i.due_date';
+    if (month && year) { sql += ` AND MONTH(${dateCol}) = ? AND YEAR(${dateCol}) = ?`; params.push(month, year); }
+    sql += ` ORDER BY ${dateCol} ${tab === 'received' ? 'DESC' : 'ASC'}`;
     const [rows] = await pool.query(sql, params);
     res.json(rows);
   } catch (err) {
