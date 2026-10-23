@@ -19,6 +19,7 @@ export default function ServerPayments({ profiles = [] }) {
   const [kpis, setKpis]     = useState({ expected: 0, received: 0, overdue: 0 });
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
+  const [syncing, setSyncing] = useState(false);
 
   const pms = profiles.filter(u => u.role === 'project_manager');
   const params = { tab, month, year, ...(filterPM !== 'all' ? { managerId: filterPM } : {}) };
@@ -39,6 +40,16 @@ export default function ServerPayments({ profiles = [] }) {
     try { await invoicesAPI.markPaidManual(id); load(); } catch (e) { alert(e.message); } finally { setBusyId(null); }
   };
 
+  // Pull paid invoices from Stripe that never reached the portal (e.g. a missed/failed webhook)
+  const syncStripe = async () => {
+    setSyncing(true);
+    try {
+      const r = await invoicesAPI.syncStripe();
+      alert(`Stripe sync complete.\nNew payments recorded: ${r.recorded}\nMarked as paid: ${r.markedPaid}${r.errors.length ? `\nErrors:\n${r.errors.join('\n')}` : ''}`);
+      load();
+    } catch (e) { alert(e.message); } finally { setSyncing(false); }
+  };
+
   const stats = [
     { label: `Expected — ${MONTHS[month - 1]?.label} ${year}`, value: fmt(kpis.expected), color: '#4F46E5', icon: '📅' },
     { label: 'Received This Month',  value: fmt(kpis.received), color: '#059669', icon: '✅' },
@@ -53,6 +64,11 @@ export default function ServerPayments({ profiles = [] }) {
           <div className="text-muted" style={{ marginTop: 3 }}>{rows.length} invoice{rows.length !== 1 ? 's' : ''} in this view</div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          {isAdmin && (
+            <button className="btn btn-sm btn-ghost" onClick={syncStripe} disabled={syncing} title="Import paid invoices from Stripe that are missing here">
+              {syncing ? <Spinner /> : <><Icon name="restore" size={13} />Sync from Stripe</>}
+            </button>
+          )}
           {isAdmin && pms.length > 0 && (
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label className="form-label">PM</label>
@@ -96,7 +112,7 @@ export default function ServerPayments({ profiles = [] }) {
       <div className="card">
         <div className="table-wrap"><table>
           <thead><tr>
-            <th>Client</th><th>Project</th><th>PM</th><th>Amount</th><th>Due Date</th><th>Status</th>
+            <th>Client</th><th>Project</th><th>PM</th><th>Amount</th><th>{tab === 'received' ? 'Paid On' : 'Due Date'}</th><th>Status</th>
             {tab !== 'upcoming' && <th style={{ textAlign: 'right' }}>Actions</th>}
           </tr></thead>
           <tbody>
@@ -112,7 +128,7 @@ export default function ServerPayments({ profiles = [] }) {
                   {Number(r.tax) > 0 && <span style={{ color: 'var(--text3)', fontSize: 11, marginLeft: 4 }}>(incl. {fmt(r.tax, r.currency)} tax)</span>}
                   {r.total != null && r.subtotal != null && Number(r.total) > Number(r.subtotal) + Number(r.tax || 0) && <span className="badge badge-yellow" style={{ marginLeft: 6, fontSize: 10 }}>Includes overdue</span>}
                 </td>
-                <td>{r.due_date ? new Date(r.due_date).toLocaleDateString() : '—'}</td>
+                <td>{(tab === 'received' ? r.paid_at : r.due_date) ? new Date(tab === 'received' ? r.paid_at : r.due_date).toLocaleDateString() : '—'}</td>
                 <td><StatusBadge status={r.status} /></td>
                 {tab !== 'upcoming' && (
                   <td style={{ textAlign: 'right' }}>
