@@ -158,6 +158,7 @@ export const invoicesAPI = {
   clientHistory:  (subscriptionId) => get(`/api/invoices/client/${subscriptionId}`),
   resend:         (id)          => post(`/api/invoices/${id}/resend`),
   markPaidManual: (id)          => post(`/api/invoices/${id}/mark-paid-manual`),
+  syncStripe:     ()            => post('/api/invoices/sync-stripe'),
 };
 
 // ── Server Management: Contact Requests (public-site "Talk to our team") ──
