@@ -22,7 +22,7 @@ async function recordInitialInvoice({
   subscriptionId, projectId, periodStart, periodEnd,
   subtotal, total, amountPaid, lineItems,
   stripeInvoiceId, stripeHostedUrl, stripePaymentIntentId, paid,
-  currency = 'usd', tax = 0,
+  currency = 'usd', tax = 0, dueDate, paidAt,
 }) {
   const conn = await pool.getConnection();
   try {
@@ -37,9 +37,9 @@ async function recordInitialInvoice({
           subtotal, total, amount_paid, status, stripe_invoice_id, stripe_payment_intent_id,
           stripe_hosted_invoice_url, paid_at, sent_at, currency, tax)
        VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)`,
-      [subscriptionId, projectId, invoiceNumber, periodStart, periodEnd, periodStart,
+      [subscriptionId, projectId, invoiceNumber, periodStart, periodEnd, dueDate || periodStart,
        subtotal, total, paid ? amountPaid : 0, status, stripeInvoiceId || null, stripePaymentIntentId || null,
-       stripeHostedUrl || null, paid ? new Date() : null, currency, tax]
+       stripeHostedUrl || null, paid ? paidAt || new Date() : null, currency, tax]
     );
     const [[invoice]] = await conn.query('SELECT * FROM invoices WHERE invoice_number = ?', [invoiceNumber]);
 
@@ -61,7 +61,7 @@ async function recordInitialInvoice({
 }
 
 // ── Mark an invoice paid, cascading to any invoices carried into it ──
-async function markInvoicePaid(invoiceId, { stripePaymentIntentId, amountPaid } = {}) {
+async function markInvoicePaid(invoiceId, { stripePaymentIntentId, amountPaid, paidAt } = {}) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -71,8 +71,8 @@ async function markInvoicePaid(invoiceId, { stripePaymentIntentId, amountPaid } 
 
     const paidAmount = amountPaid != null ? amountPaid : invoice.total;
     await conn.query(
-      `UPDATE invoices SET status = 'paid', amount_paid = ?, stripe_payment_intent_id = COALESCE(?, stripe_payment_intent_id), paid_at = NOW() WHERE id = ?`,
-      [paidAmount, stripePaymentIntentId || null, invoiceId]
+      `UPDATE invoices SET status = 'paid', amount_paid = ?, stripe_payment_intent_id = COALESCE(?, stripe_payment_intent_id), paid_at = COALESCE(?, NOW()) WHERE id = ?`,
+      [paidAmount, stripePaymentIntentId || null, paidAt || null, invoiceId]
     );
 
     // Cascade paid status back through any invoices this one absorbed via carry-forward.
