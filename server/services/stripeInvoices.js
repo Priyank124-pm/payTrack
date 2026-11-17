@@ -19,6 +19,69 @@ const invoiceTax = (inv) => {
 };
 const isoDate = (unix) => new Date(unix * 1000).toISOString().split('T')[0];
 
+// `current_period_start`/`current_period_end` used to live on the Subscription
+// object itself; newer Stripe API versions moved them onto each subscription
+// item instead. Which shape a webhook payload uses depends on the API
+// version the *webhook endpoint* is configured with in the Dashboard (not
+// the stripe-node SDK version), so read both shapes defensively.
+function getSubscriptionPeriod(stripeSub) {
+  const start = stripeSub.current_period_start ?? stripeSub.items?.data?.[0]?.current_period_start;
+  const end   = stripeSub.current_period_end   ?? stripeSub.items?.data?.[0]?.current_period_end;
+  if (!start || !end) return null;
+  return { periodStart: isoDate(start), periodEnd: isoDate(end) };
+}
+
+// Stripe has more subscription states than our ENUM — collapse them. Unknown ones (e.g. paused) keep the local status.
+const LOCAL_SUB_STATUS = {
+  active: 'active', trialing: 'active',
+  past_due: 'past_due', unpaid: 'past_due', incomplete: 'past_due',
+  canceled: 'canceled', incomplete_expired: 'canceled',
+};
+const willRenew = (stripeSub) => LOCAL_SUB_STATUS[stripeSub.status] !== 'canceled' && !stripeSub.cancel_at_period_end;
+
+// Write Stripe's view of a subscription (status + billing period) onto our row.
+// next_invoice_date is cleared when Stripe won't charge again (canceled / cancel at period end).
+async function applySubscriptionState(stripeSub) {
+  const period = getSubscriptionPeriod(stripeSub);
+  const status = LOCAL_SUB_STATUS[stripeSub.status] || null;
+  await pool.query(
+    `UPDATE server_subscriptions
+     SET status               = COALESCE(?, status),
+         current_period_start = COALESCE(?, current_period_start),
+         current_period_end   = COALESCE(?, current_period_end),
+         next_invoice_date    = ?,
+         canceled_at          = IF(? = 'canceled', COALESCE(canceled_at, NOW()), canceled_at)
+     WHERE stripe_subscription_id = ?`,
+    [status, period?.periodStart || null, period?.periodEnd || null,
+     willRenew(stripeSub) ? period?.periodEnd || null : null, status, stripeSub.id]
+  );
+}
+
+// The next charge Stripe will actually make for a subscription (amount incl. tax/discounts, date).
+// Also refreshes the local row so a missed webhook can't leave it stale. Returns null if it won't renew.
+async function fetchUpcomingCharge(stripeSubscriptionId) {
+  const stripeSub = await stripeService.stripe.subscriptions.retrieve(stripeSubscriptionId);
+  await applySubscriptionState(stripeSub);
+  if (!willRenew(stripeSub)) return null;
+
+  let inv;
+  try {
+    inv = await stripeService.stripe.invoices.retrieveUpcoming({ subscription: stripeSubscriptionId });
+  } catch (e) {
+    if (e.code === 'invoice_upcoming_none') return null;
+    throw e;
+  }
+  const period = getSubscriptionPeriod(stripeSub);
+  return {
+    subtotal: (inv.subtotal || 0) / 100,
+    total:    (inv.total || 0) / 100,
+    tax:      invoiceTax(inv),
+    currency: inv.currency,
+    due_date: inv.next_payment_attempt ? isoDate(inv.next_payment_attempt) : period?.periodEnd || null,
+    status:   LOCAL_SUB_STATUS[stripeSub.status] === 'past_due' ? 'past_due' : 'upcoming',
+  };
+}
+
 // Returns { invoice, created } — invoice is null when it isn't one of our subscriptions.
 async function findOrCreateLocalInvoice(stripeInvoice, { paidNow }) {
   const [[existing]] = await pool.query('SELECT * FROM invoices WHERE stripe_invoice_id = ?', [stripeInvoice.id]);
@@ -56,7 +119,8 @@ async function findOrCreateLocalInvoice(stripeInvoice, { paidNow }) {
   return { invoice, created: true };
 }
 
-// Pull every paid invoice for our live subscriptions from Stripe and record/mark any we missed.
+// Pull every paid invoice for our live subscriptions from Stripe and record/mark any we missed,
+// and refresh each subscription's status/billing period.
 async function syncPaidInvoices() {
   const [subs] = await pool.query(
     `SELECT stripe_subscription_id FROM server_subscriptions WHERE stripe_subscription_id IS NOT NULL`);
@@ -64,6 +128,7 @@ async function syncPaidInvoices() {
 
   for (const { stripe_subscription_id: subId } of subs) {
     try {
+      await applySubscriptionState(await stripeService.stripe.subscriptions.retrieve(subId));
       for await (const inv of stripeService.stripe.invoices.list({ subscription: subId, status: 'paid', limit: 100 })) {
         const { invoice, created } = await findOrCreateLocalInvoice(inv, { paidNow: true });
         if (!invoice) continue;
@@ -83,4 +148,7 @@ async function syncPaidInvoices() {
   return summary;
 }
 
-module.exports = { findOrCreateLocalInvoice, syncPaidInvoices, invoicePaymentIntent, invoiceTax };
+module.exports = {
+  findOrCreateLocalInvoice, syncPaidInvoices, invoicePaymentIntent, invoiceTax,
+  getSubscriptionPeriod, applySubscriptionState, fetchUpcomingCharge,
+};

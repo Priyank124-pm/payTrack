@@ -127,6 +127,7 @@ export default function ServerPayments({ profiles = [] }) {
                   {fmt(r.total ?? r.amount, r.currency)}
                   {Number(r.tax) > 0 && <span style={{ color: 'var(--text3)', fontSize: 11, marginLeft: 4 }}>(incl. {fmt(r.tax, r.currency)} tax)</span>}
                   {r.total != null && r.subtotal != null && Number(r.total) > Number(r.subtotal) + Number(r.tax || 0) && <span className="badge badge-yellow" style={{ marginLeft: 6, fontSize: 10 }}>Includes overdue</span>}
+                  {r.stale && <span className="badge badge-gray" style={{ marginLeft: 6, fontSize: 10 }} title="Stripe could not be reached — showing last known values">Not synced</span>}
                 </td>
                 <td>{(tab === 'received' ? r.paid_at : r.due_date) ? new Date(tab === 'received' ? r.paid_at : r.due_date).toLocaleDateString() : '—'}</td>
                 <td><StatusBadge status={r.status} /></td>

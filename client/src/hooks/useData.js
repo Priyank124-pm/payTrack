@@ -69,7 +69,7 @@ export const useProjects = () => {
 
   const archiveProject = async (id) => {
     await projectsAPI.archive(id);
-    await refetch();
+    await Promise.all([refetch(), loadArchivedProjects()]);
   };
   const unarchiveProject = async (id) => {
     await projectsAPI.unarchive(id);

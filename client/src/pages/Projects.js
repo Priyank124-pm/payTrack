@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Modal, Icon, Avatar, fmt, pct, ProgressBar, EmptyState, Spinner, ActionsMenu, todayStr } from '../components/UI';
 import { useAuth } from '../context/AuthContext';
 import { PORTALS, COMMISSION_PORTALS, calcNet } from '../hooks/useData';
@@ -121,6 +121,9 @@ export default function Projects({
 
   const closeCsvModal = () => { setModal(null); setCsvRows([]); setCsvError(''); setCsvResult(null); };
 
+  // Load archived up front so the tab count is right before the tab is opened
+  useEffect(() => { if (isAdmin) onLoadArchived(); }, [isAdmin]); // eslint-disable-line
+
   const handleTabChange = tab => {
     setActiveTab(tab);
     setSelected(new Set());
@@ -140,8 +143,12 @@ export default function Projects({
     if (!window.confirm('Archive this project? It will be hidden from projections and can be restored later.')) return;
     await onArchive(id);
   };
+  const [restoringId, setRestoringId] = useState(null);
   const handleRestore = async id => {
-    await onUnarchive(id);
+    setRestoringId(id); setError('');
+    try { await onUnarchive(id); }
+    catch (e) { setError(`Could not restore project: ${e.message}`); }
+    finally { setRestoringId(null); }
   };
   const handleBulkDelete = async () => {
     const ids = [...selected];
@@ -285,7 +292,7 @@ export default function Projects({
   return (
     <div>
       {/* ── Header ───────────────────────────────────────────── */}
-      <div className="flex flex-center flex-between mb-4">
+      <div className="flex flex-center flex-between mb-4" style={{ flexWrap:'wrap', gap:10 }}>
         <div>
           <div className="page-title">Projects</div>
           <div className="text-muted" style={{ marginTop:3 }}>
@@ -330,7 +337,7 @@ export default function Projects({
 
       {/* ── Tabs ─────────────────────────────────────────────── */}
       {isAdmin && (
-        <div style={{ display:'flex', borderBottom:'2px solid var(--border1)', marginBottom:14 }}>
+        <div style={{ display:'flex', borderBottom:'2px solid var(--border1)', marginBottom:14, overflowX:'auto', whiteSpace:'nowrap' }}>
           <button style={TAB_STYLE(activeTab==='active')}   onClick={() => handleTabChange('active')}>
             Active Projects ({myProjects.length})
           </button>
@@ -344,6 +351,10 @@ export default function Projects({
             <Icon name="rocket" size={13} /> Ready to Production ({productionProjects.length})
           </button>
         </div>
+      )}
+
+      {error && !modal && !bulkModal && (
+        <div className="alert alert-error" style={{ marginBottom:12 }}><Icon name="warning" size={13}/>{error}</div>
       )}
 
       {/* ── Info / warnings (active tab only) ────────────────── */}
@@ -479,11 +490,15 @@ export default function Projects({
                     {isAdmin && <td style={{fontSize:12,color:'var(--text2)'}}>{pr.coordinator_name||'—'}</td>}
                     <td className="mono" style={{fontSize:12}}>{fmt(pr.target_payment)}</td>
                     <td style={{textAlign:'right'}}>
-                      <ActionsMenu items={[
-                        { icon:'comment', label:'Comments', onClick:()=>openProjectComments(pr) },
-                        { icon:'restore', label:'Restore',  onClick:()=>handleRestore(pr.id) },
-                        isSuperAdmin && { icon:'delete', label:'Delete', danger:true, onClick:()=>{ if(window.confirm('Permanently delete this project and all its data?')) onDelete(pr.id); } },
-                      ]} />
+                      <div style={{ display:'inline-flex', gap:6, alignItems:'center' }}>
+                        <button className="btn btn-sm btn-outline" disabled={restoringId===pr.id} onClick={()=>handleRestore(pr.id)}>
+                          {restoringId===pr.id ? <Spinner/> : <><Icon name="restore" size={13}/>Restore</>}
+                        </button>
+                        <ActionsMenu items={[
+                          { icon:'comment', label:'Comments', onClick:()=>openProjectComments(pr) },
+                          isSuperAdmin && { icon:'delete', label:'Delete', danger:true, onClick:()=>{ if(window.confirm('Permanently delete this project and all its data?')) onDelete(pr.id); } },
+                        ]} />
+                      </div>
                     </td>
                   </tr>
                 );

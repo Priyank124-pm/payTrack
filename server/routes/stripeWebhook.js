@@ -2,28 +2,13 @@ const express = require('express');
 const pool = require('../db/pool');
 const stripeService = require('../services/stripeService');
 const invoiceService = require('../services/invoiceService');
-const { findOrCreateLocalInvoice, invoicePaymentIntent, invoiceTax } = require('../services/stripeInvoices');
+const {
+  findOrCreateLocalInvoice, invoicePaymentIntent, invoiceTax, getSubscriptionPeriod, applySubscriptionState,
+} = require('../services/stripeInvoices');
 const { logActivity } = require('../services/logger');
 const { notify } = require('../services/notifyService');
 
 const router = express.Router();
-
-// `current_period_start`/`current_period_end` used to live on the Subscription
-// object itself; newer Stripe API versions moved them onto each subscription
-// item instead. Which shape a webhook payload uses depends on the API
-// version the *webhook endpoint* is configured with in the Dashboard (not
-// the stripe-node SDK version), so read both shapes defensively rather than
-// assuming one — this is what was crashing `handleSubscriptionCreated` with
-// "Invalid time value" when the top-level fields were absent.
-function getSubscriptionPeriod(stripeSub) {
-  const start = stripeSub.current_period_start ?? stripeSub.items?.data?.[0]?.current_period_start;
-  const end   = stripeSub.current_period_end   ?? stripeSub.items?.data?.[0]?.current_period_end;
-  if (!start || !end) return null;
-  return {
-    periodStart: new Date(start * 1000).toISOString().split('T')[0],
-    periodEnd:   new Date(end * 1000).toISOString().split('T')[0],
-  };
-}
 
 // No `authenticate` here — Stripe signs requests with `stripe-signature`,
 // not a JWT. Must be mounted with express.raw() (see server/index.js),
@@ -240,16 +225,10 @@ async function handleSubscriptionCreated(stripeSub) {
 
 // Keeps "Sub. Start"/"Next Billing" (SubscribedClients.js) and the Server
 // Payments "upcoming" tab accurate now that Stripe — not a local scheduler —
-// decides when the subscription renews.
+// decides when the subscription renews. Also carries status changes
+// (past_due → active after a retry succeeds, cancel at period end).
 async function handleSubscriptionUpdated(stripeSub) {
-  const period = getSubscriptionPeriod(stripeSub);
-  if (!period) return;
-  await pool.query(
-    `UPDATE server_subscriptions
-     SET current_period_start = ?, current_period_end = ?, next_invoice_date = ?
-     WHERE stripe_subscription_id = ?`,
-    [period.periodStart, period.periodEnd, period.periodEnd, stripeSub.id]
-  );
+  await applySubscriptionState(stripeSub);
 }
 
 async function handleInvoicePaymentSucceeded(stripeInvoice) {
