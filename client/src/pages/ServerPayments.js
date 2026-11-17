@@ -45,7 +45,7 @@ export default function ServerPayments({ profiles = [] }) {
     setSyncing(true);
     try {
       const r = await invoicesAPI.syncStripe();
-      alert(`Stripe sync complete.\nNew payments recorded: ${r.recorded}\nMarked as paid: ${r.markedPaid}${r.errors.length ? `\nErrors:\n${r.errors.join('\n')}` : ''}`);
+      alert(`Stripe sync complete.\nNew payments recorded: ${r.recorded}\nMarked as paid: ${r.markedPaid}\nDates corrected: ${r.datesFixed}${r.errors.length ? `\nErrors:\n${r.errors.join('\n')}` : ''}`);
       load();
     } catch (e) { alert(e.message); } finally { setSyncing(false); }
   };
