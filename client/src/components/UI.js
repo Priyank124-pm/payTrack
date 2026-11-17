@@ -67,7 +67,12 @@ export const ActionsMenu = ({ items }) => {
     e.stopPropagation();
     if (pos) { setPos(null); return; }
     const r = btnRef.current.getBoundingClientRect();
-    setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    // Keep the menu on-screen: clamp horizontally (the button can sit past the edge of a
+    // horizontally-scrolled table on mobile) and open upward when there's no room below.
+    const menuW = 210, menuH = items.filter(Boolean).length * 41, gap = 8;
+    const right = Math.min(Math.max(window.innerWidth - r.right, gap), window.innerWidth - menuW - gap);
+    const fitsBelow = r.bottom + 4 + menuH <= window.innerHeight - gap;
+    setPos(fitsBelow ? { top: r.bottom + 4, right } : { bottom: Math.max(window.innerHeight - r.top + 4, gap), right });
   };
 
   React.useEffect(() => {
@@ -76,8 +81,18 @@ export const ActionsMenu = ({ items }) => {
       if (menuRef.current && !menuRef.current.contains(e.target) && !btnRef.current.contains(e.target))
         setPos(null);
     };
+    // The menu is position:fixed, so it would drift away from its button on scroll — close it instead
+    const close = e => { if (!menuRef.current?.contains(e.target)) setPos(null); };
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('touchstart', handler);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('touchstart', handler);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
   }, [pos]);
 
   const visible = items.filter(Boolean);
@@ -91,7 +106,7 @@ export const ActionsMenu = ({ items }) => {
       {pos && (
         <div
           ref={menuRef}
-          style={{ position:'fixed', top: pos.top, right: pos.right, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius)', boxShadow:'var(--shadow-lg)', zIndex:9999, minWidth:210, overflow:'hidden' }}
+          style={{ position:'fixed', top: pos.top, bottom: pos.bottom, right: pos.right, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius)', boxShadow:'var(--shadow-lg)', zIndex:9999, minWidth:210, maxHeight:'calc(100vh - 16px)', overflowY:'auto' }}
         >
           {visible.map((item, i) => (
             <button
