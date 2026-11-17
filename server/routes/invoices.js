@@ -4,7 +4,8 @@ const { isScopedCoordinator } = require('../services/access');
 const { authenticate, isAdmin, getEffectiveManagerId } = require('../middleware/auth');
 const { logActivity } = require('../services/logger');
 const invoiceService  = require('../services/invoiceService');
-const { syncPaidInvoices } = require('../services/stripeInvoices');
+const { syncPaidInvoices, fetchUpcomingCharge } = require('../services/stripeInvoices');
+const { cycleAmount } = require('../services/stripeService');
 const { sendMail, invoiceTemplate } = require('../services/emailService');
 
 const router = express.Router();
@@ -38,7 +39,8 @@ router.get('/', async (req, res) => {
 
     if (tab === 'upcoming') {
       let sql = `
-        SELECT ss.id AS subscription_id, ss.project_id, ss.monthly_price AS amount, ss.currency, ss.next_invoice_date AS due_date,
+        SELECT ss.id AS subscription_id, ss.stripe_subscription_id, ss.project_id, ss.monthly_price, ss.billing_interval,
+               ss.currency, ss.next_invoice_date AS due_date, ss.status AS sub_status,
                p.name AS project_name, p.client AS client_name, p.manager_id, u.name AS pm_name
         FROM server_subscriptions ss
         JOIN projects p ON p.id = ss.project_id
@@ -47,9 +49,24 @@ router.get('/', async (req, res) => {
       `;
       const params = [];
       if (scope) { sql += ` AND ${scope.clause}`; params.push(scope.param); }
-      sql += ' ORDER BY ss.next_invoice_date ASC';
-      const [rows] = await pool.query(sql, params);
-      return res.json(rows.map(r => ({ ...r, status: 'upcoming' })));
+      const [subs] = await pool.query(sql, params);
+
+      // Stripe is the billing authority — ask it for each subscription's real next charge.
+      // If Stripe is unreachable, fall back to our last known values (full cycle amount, not the monthly rate).
+      const rows = await Promise.all(subs.map(async ({ stripe_subscription_id, monthly_price, billing_interval, sub_status, ...r }) => {
+        const base = { ...r, amount: cycleAmount(monthly_price, billing_interval) };
+        if (!stripe_subscription_id) return { ...base, status: 'upcoming' };
+        try {
+          const charge = await fetchUpcomingCharge(stripe_subscription_id);
+          return charge && { ...base, ...charge, amount: charge.total };
+        } catch (e) {
+          console.error(`[Upcoming] Stripe lookup failed for ${stripe_subscription_id}:`, e.message);
+          return { ...base, status: sub_status === 'past_due' ? 'past_due' : 'upcoming', stale: true };
+        }
+      }));
+      const dueTime = (r) => (r.due_date ? new Date(r.due_date).getTime() : Infinity);
+      const upcoming = rows.filter(Boolean).sort((a, b) => dueTime(a) - dueTime(b));
+      return res.json(upcoming);
     }
 
     const statuses = tab === 'received' ? ['paid'] : ['pending', 'sent', 'overdue'];
