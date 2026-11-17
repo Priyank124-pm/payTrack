@@ -19,6 +19,22 @@ const invoiceTax = (inv) => {
 };
 const isoDate = (unix) => new Date(unix * 1000).toISOString().split('T')[0];
 
+// The invoice-level period_start/period_end is the PREVIOUS cycle on renewal invoices (Stripe
+// bills in advance), so the service period comes from the subscription line item. The charge
+// date is the invoice's creation (auto-charged invoices have no due_date), and paid_at is when
+// Stripe actually collected it — not when we happened to record it.
+const invoiceDates = (inv) => {
+  const lines = inv.lines?.data || [];
+  const line  = lines.find(l => l.type === 'subscription') || lines[0];
+  const paid  = inv.status_transitions?.paid_at;
+  return {
+    periodStart: isoDate(line?.period?.start || inv.period_start || inv.created),
+    periodEnd:   isoDate(line?.period?.end   || inv.period_end   || inv.created),
+    dueDate:     isoDate(inv.due_date || inv.created),
+    paidAt:      paid ? new Date(paid * 1000) : null,
+  };
+};
+
 // `current_period_start`/`current_period_end` used to live on the Subscription
 // object itself; newer Stripe API versions moved them onto each subscription
 // item instead. Which shape a webhook payload uses depends on the API
@@ -100,8 +116,7 @@ async function findOrCreateLocalInvoice(stripeInvoice, { paidNow }) {
 
   const invoice = await invoiceService.recordInitialInvoice({
     subscriptionId: subscription.id, projectId: subscription.project_id,
-    periodStart: isoDate(stripeInvoice.period_start || stripeInvoice.created),
-    periodEnd:   isoDate(stripeInvoice.period_end   || stripeInvoice.created),
+    ...invoiceDates(stripeInvoice),
     subtotal: (stripeInvoice.subtotal || 0) / 100,
     total: (stripeInvoice.total || 0) / 100,
     amountPaid: (stripeInvoice.amount_paid || 0) / 100,
@@ -120,11 +135,11 @@ async function findOrCreateLocalInvoice(stripeInvoice, { paidNow }) {
 }
 
 // Pull every paid invoice for our live subscriptions from Stripe and record/mark any we missed,
-// and refresh each subscription's status/billing period.
+// correct the dates on ones already recorded, and refresh each subscription's status/billing period.
 async function syncPaidInvoices() {
   const [subs] = await pool.query(
     `SELECT stripe_subscription_id FROM server_subscriptions WHERE stripe_subscription_id IS NOT NULL`);
-  const summary = { subscriptions: subs.length, recorded: 0, markedPaid: 0, errors: [] };
+  const summary = { subscriptions: subs.length, recorded: 0, markedPaid: 0, datesFixed: 0, errors: [] };
 
   for (const { stripe_subscription_id: subId } of subs) {
     try {
@@ -132,23 +147,33 @@ async function syncPaidInvoices() {
       for await (const inv of stripeService.stripe.invoices.list({ subscription: subId, status: 'paid', limit: 100 })) {
         const { invoice, created } = await findOrCreateLocalInvoice(inv, { paidNow: true });
         if (!invoice) continue;
-        if (created) summary.recorded++;
-        else if (invoice.status !== 'paid') {
+        if (created) { summary.recorded++; continue; }
+        if (invoice.status !== 'paid') {
           await invoiceService.markInvoicePaid(invoice.id, {
             stripePaymentIntentId: invoicePaymentIntent(inv),
             amountPaid: (inv.amount_paid || 0) / 100,
+            paidAt: invoiceDates(inv).paidAt,
           });
           summary.markedPaid++;
         }
+        const { periodStart, periodEnd, dueDate, paidAt } = invoiceDates(inv);
+        const [r] = await pool.query(
+          `UPDATE invoices SET period_start = ?, period_end = ?, due_date = ?, paid_at = COALESCE(?, paid_at)
+           WHERE id = ? AND NOT (period_start <=> ? AND period_end <=> ? AND due_date <=> ? AND (? IS NULL OR paid_at <=> ?))`,
+          [periodStart, periodEnd, dueDate, paidAt, invoice.id, periodStart, periodEnd, dueDate, paidAt, paidAt]
+        );
+        if (r.affectedRows) summary.datesFixed++;
       }
     } catch (e) {
-      summary.errors.push(`${subId}: ${e.message}`);
+      summary.errors.push(e.code === 'resource_missing'
+        ? `${subId}: not found in the connected Stripe account`
+        : `${subId}: ${e.message}`);
     }
   }
   return summary;
 }
 
 module.exports = {
-  findOrCreateLocalInvoice, syncPaidInvoices, invoicePaymentIntent, invoiceTax,
+  findOrCreateLocalInvoice, syncPaidInvoices, invoicePaymentIntent, invoiceTax, invoiceDates,
   getSubscriptionPeriod, applySubscriptionState, fetchUpcomingCharge,
 };

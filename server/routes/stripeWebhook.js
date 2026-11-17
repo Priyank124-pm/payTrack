@@ -3,7 +3,7 @@ const pool = require('../db/pool');
 const stripeService = require('../services/stripeService');
 const invoiceService = require('../services/invoiceService');
 const {
-  findOrCreateLocalInvoice, invoicePaymentIntent, invoiceTax, getSubscriptionPeriod, applySubscriptionState,
+  findOrCreateLocalInvoice, invoicePaymentIntent, invoiceTax, invoiceDates, getSubscriptionPeriod, applySubscriptionState,
 } = require('../services/stripeInvoices');
 const { logActivity } = require('../services/logger');
 const { notify } = require('../services/notifyService');
@@ -239,6 +239,7 @@ async function handleInvoicePaymentSucceeded(stripeInvoice) {
     await invoiceService.markInvoicePaid(invoice.id, {
       stripePaymentIntentId: invoicePaymentIntent(stripeInvoice),
       amountPaid: (stripeInvoice.amount_paid || 0) / 100,
+      paidAt: invoiceDates(stripeInvoice).paidAt,
     });
   }
   await logActivity({

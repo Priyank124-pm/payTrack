@@ -60,6 +60,8 @@ router.get('/', async (req, res) => {
           const charge = await fetchUpcomingCharge(stripe_subscription_id);
           return charge && { ...base, ...charge, amount: charge.total };
         } catch (e) {
+          // Not in the connected Stripe account (e.g. created under another key) — nothing will be charged
+          if (e.code === 'resource_missing') return null;
           console.error(`[Upcoming] Stripe lookup failed for ${stripe_subscription_id}:`, e.message);
           return { ...base, status: sub_status === 'past_due' ? 'past_due' : 'upcoming', stale: true };
         }
